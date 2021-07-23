@@ -463,6 +463,13 @@ check_result_one(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 		}
 		break;
 
+	case DSA_OPCODE_COPY_CRC:
+		if (comp->crc_val != tcpu->crc[k]) {
+			ERR("crc mismatch desc %d\n", k);
+			tcpu->err = 1;
+		}
+		break;
+
 	case DSA_OPCODE_BATCH:
 		for (i = 0; i < desc->desc_count; i++)
 			if (check_result_one(tcpu,

@@ -449,6 +449,11 @@ test_init_dmap(struct tcfg_cpu *tcpu)
 void
 test_init_percpu(struct tcfg_cpu *tcpu)
 {
+	tcpu->crc = malloc(tcpu->tcfg->nb_bufs * sizeof(tcpu->crc[0]));
+	if (!tcpu->crc) {
+		tcpu->err = -ENOMEM;
+		return;
+	}
 
 	tcpu->err = test_init_wq(tcpu);
 	if (tcpu->err)
