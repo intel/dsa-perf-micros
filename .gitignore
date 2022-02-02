@@ -1,0 +1,16 @@
+.vscode/
+autom4te.cache/
+src/.deps/
+src/Makefile.in
+src/Makefile
+src/*.o
+src/dsa_perf_micros
+aclocal.m4
+configure
+Makefile.in
+version.m4
+config.log
+config.status
+compile
+install-sh
+depcomp
