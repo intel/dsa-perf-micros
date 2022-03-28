@@ -199,20 +199,23 @@ static inline void
 reset_cmpltn(struct tcfg_cpu *tcpu, int begin, int end, int ring_size)
 {
 	int b;
+	struct dsa_hw_desc *d;
 	struct dsa_completion_record *c;
 
 	b = begin;
 	c = comp_rec(tcpu, begin);
 
-	c->status = 0;
-	if (begin == end)
-		return;
+	b = begin == 0 ? ring_size - 1 : b - 1;
+	d = tcpu->tcfg->op == DSA_OPCODE_BATCH ? tcpu->bdesc : tcpu->desc;
 
 	do {
 		b = (b + 1) % ring_size;
 		c = comp_rec(tcpu, b);
 		if (c->status == 0)
 			ERR("Resetting completion - but status is already zero %d\n", b);
+		if (tcpu->tcfg->cpu_desc_work)
+			init_desc_addr(tcpu, b * tcpu->tcfg->batch_sz,
+				d->opcode == DSA_OPCODE_BATCH ? d->desc_count : 1);
 		c->status = 0;
 	} while (b != end);
 }

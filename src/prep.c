@@ -30,6 +30,154 @@ uint16_t dif_block_len(uint8_t idx)
 	return bl_tbl[idx];
 }
 
+static void
+init_memmove_desc_addr(struct tcfg_cpu *tcpu, int begin, int count)
+{
+	uint64_t off = tcpu->tcfg->bstride * begin;
+	struct dsa_hw_desc *d = &tcpu->desc[begin];
+	int i;
+
+	for (i = 0; i < count; i++, d++) {
+		d->src_addr = rte_mem_virt2iova(tcpu->src + off);
+		d->dst_addr = rte_mem_virt2iova(tcpu->dst + off);
+		off = off + tcpu->tcfg->bstride;
+	}
+}
+
+static void
+init_ap_delta_addr(struct tcfg_cpu *tcpu, int begin, int count)
+{
+	struct tcfg *tcfg = tcpu->tcfg;
+	struct dsa_hw_desc *d = &tcpu->desc[begin];
+	char *src = (char *)tcpu->delta;
+	char *dst = tcpu->dst;
+	uint64_t src_stride = tcfg->delta_rec_size;
+	uint64_t dst_stride = tcfg->bstride;
+	uint64_t src_off = src_stride * begin;
+	uint64_t dst_off = dst_stride * begin;
+	int i;
+
+	for (i = 0; i < count; i++, d++) {
+		d->src_addr = rte_mem_virt2iova(src + src_off + i * src_stride);
+		d->dst_addr = rte_mem_virt2iova(dst + dst_off + i * dst_stride);
+	}
+}
+
+static void
+init_dst_addr(struct tcfg_cpu *tcpu, int begin, int count)
+{
+	uint64_t off = tcpu->tcfg->bstride * begin;
+	struct dsa_hw_desc *d = &tcpu->desc[begin];
+	int i;
+
+	for (i = 0; i < count; i++, d++)
+		d->dst_addr = rte_mem_virt2iova(tcpu->dst + off + i * tcpu->tcfg->bstride);
+}
+
+static void
+init_src_addr(struct tcfg_cpu *tcpu, int begin, int count)
+{
+	uint64_t off = tcpu->tcfg->bstride * begin;
+	struct dsa_hw_desc *d = &tcpu->desc[begin];
+	int i;
+
+	for (i = 0; i < count; i++, d++)
+		d->src_addr = rte_mem_virt2iova(tcpu->src + off + i * tcpu->tcfg->bstride);
+}
+
+static void
+init_src_addrs(struct tcfg_cpu *tcpu, int begin, int count)
+{
+	struct dsa_hw_desc *d = &tcpu->desc[begin];
+	uint32_t off = tcpu->tcfg->bstride * begin;
+	int i;
+
+	for (i = 0; i < count; i++, d++) {
+		d->src_addr = rte_mem_virt2iova(tcpu->src1 + off);
+		d->src2_addr = rte_mem_virt2iova(tcpu->src2 + off);
+		off = off + tcpu->tcfg->bstride;
+	}
+}
+
+static void
+init_dc_addr(struct tcfg_cpu *tcpu, int begin, int count)
+{
+	struct dsa_hw_desc *d = &tcpu->desc[begin];
+	struct tcfg *tcfg = tcpu->tcfg;
+	uint32_t off = tcfg->bstride * begin;
+	int i;
+
+	for (i = 0; i < count; i++, d++) {
+		d->src_addr = rte_mem_virt2iova(tcpu->src + off);
+		d->dst_addr = rte_mem_virt2iova(tcpu->dst1 + off);
+		d->dest2 = rte_mem_virt2iova(tcpu->dst2 + off);
+		off = off + tcpu->tcfg->bstride;
+	}
+}
+
+static void
+init_dif_addr(struct tcfg_cpu *tcpu, int begin, int count)
+{
+	struct dsa_hw_desc *d = &tcpu->desc[begin];
+	struct tcfg *tcfg = tcpu->tcfg;
+	uint32_t off_src, off_dst;
+	uint32_t i;
+
+	off_src = begin * tcfg->bstride_arr[0];
+	off_dst = begin * tcfg->bstride_arr[1];
+
+	for (i = 0; i < count; i++, d++) {
+		d->src_addr = rte_mem_virt2iova(tcpu->src + off_src);
+		off_src += tcfg->bstride_arr[0];
+		if (!tcpu->dst)
+			continue;
+		d->dst_addr = rte_mem_virt2iova(tcpu->dst + off_dst);
+		off_dst += tcfg->bstride_arr[1];
+	}
+}
+
+void
+init_desc_addr(struct tcfg_cpu *tcpu, int begin, int count)
+{
+	switch (tcpu->tcfg->op) {
+
+	case DSA_OPCODE_MEMMOVE:
+	case DSA_OPCODE_COPY_CRC:
+		init_memmove_desc_addr(tcpu, begin, count);
+		break;
+
+	case DSA_OPCODE_MEMFILL:
+		init_dst_addr(tcpu, begin, count);
+		break;
+
+	case DSA_OPCODE_CRCGEN:
+	case DSA_OPCODE_COMPVAL:
+		init_src_addr(tcpu, begin, count);
+		break;
+
+	case DSA_OPCODE_COMPARE:
+	case DSA_OPCODE_CR_DELTA:
+		init_src_addrs(tcpu, begin, count);
+		break;
+
+	case DSA_OPCODE_AP_DELTA:
+		init_ap_delta_addr(tcpu, begin, count);
+		break;
+
+	case DSA_OPCODE_DUALCAST:
+		init_dc_addr(tcpu, begin, count);
+		break;
+
+	case DSA_OPCODE_DIF_CHECK:
+	case DSA_OPCODE_DIF_STRP:
+	case DSA_OPCODE_DIF_INS:
+	case DSA_OPCODE_DIF_UPDT:
+		init_dif_addr(tcpu, begin, count);
+		break;
+
+	}
+}
+
 static uint16_t
 dsa_calculate_crc_t10dif(unsigned char *buffer, size_t len, uint8_t flags)
 {
@@ -51,24 +199,13 @@ prep_dsa_memmove(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 {
 	struct tcfg *tcfg = tcpu->tcfg;
 	struct dsa_hw_desc *descs = tcpu->desc;
-
-	uint32_t off;
-	char *src;
-	char *dst;
 	uint32_t i;
-
-	src = tcpu->src;
-	dst = tcpu->dst;
-	off = tcpu->tcfg->bstride;
 
 	init_buffers(tcpu);
 
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
-		descs[i].src_addr = rte_mem_virt2iova(src);
-		descs[i].dst_addr = rte_mem_virt2iova(dst);
-		src += off;
-		dst += off;
+		init_memmove_desc_addr(tcpu, i, 1);
 	}
 }
 
@@ -78,18 +215,12 @@ prep_dsa_dst_only(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 	struct tcfg *tcfg = tcpu->tcfg;
 	struct dsa_hw_desc *descs = tcpu->desc;
 	uint32_t i;
-	char *dst;
-	uint32_t off;
-
-	off = tcfg->bstride;
-	dst = tcpu->dst;
 
 	/* not initializing buffer */
 
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
-		descs[i].dst_addr = rte_mem_virt2iova(dst);
-		dst += off;
+		init_dst_addr(tcpu, i, 1);
 	}
 }
 
@@ -109,20 +240,12 @@ prep_dsa_src_only(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 	struct dsa_hw_desc *descs = tcpu->desc;
 	struct tcfg *tcfg = tcpu->tcfg;
 	uint32_t i;
-	char *src;
-	uint32_t off;
-
-	off = tcfg->bstride;
-	src = tcpu->src;
 
 	init_buffers(tcpu);
 
-	src = tcpu->src;
-
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
-		descs[i].src_addr = rte_mem_virt2iova(src);
-		src += off;
+		init_src_addr(tcpu, i, 1);
 	}
 }
 
@@ -142,22 +265,11 @@ prep_dsa_memcmp(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 	struct tcfg *tcfg = tcpu->tcfg;
 	struct dsa_hw_desc *descs = tcpu->desc;
 	uint32_t i;
-	char *src1;
-	char *src2;
-	uint32_t off;
-
-	off = tcfg->bstride;
-	src1 = tcpu->src1;
-	src2 = tcpu->src2;
-
 	init_buffers(tcpu);
 
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
-		descs[i].src_addr = rte_mem_virt2iova(src1);
-		descs[i].src2_addr = rte_mem_virt2iova(src2);
-		src1 += off;
-		src2 += off;
+		init_src_addrs(tcpu, i, 1);
 	}
 }
 
@@ -169,25 +281,16 @@ prep_dsa_cr_delta(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 	uint32_t delta_rec_size = tcfg->delta_rec_size;
 	struct delta_rec *dptr;
 	uint32_t i;
-	char *src1;
-	char *src2;
-	uint32_t off;
 
 	init_buffers(tcpu);
 
-	off = tcfg->bstride;
-	src1 = tcpu->src1;
-	src2 = tcpu->src2;
 	dptr = tcpu->delta;
 	desc->max_delta_size = min(80, tcfg->delta_rec_size);
 
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
-		descs[i].src_addr = rte_mem_virt2iova(src1);
-		descs[i].src2_addr = rte_mem_virt2iova(src2);
+		init_src_addrs(tcpu, i, 1);
 		descs[i].delta_addr = rte_mem_virt2iova(dptr);
-		src1 += off;
-		src2 += off;
 		dptr +=  delta_rec_size/sizeof(struct delta_rec);
 	}
 }
@@ -196,33 +299,16 @@ static void
 prep_dsa_ap_delta(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 {
 	uint32_t i;
-	char *dst;
-	uint32_t off;
 	struct dsa_hw_desc *descs = tcpu->desc;
 	struct tcfg *tcfg = tcpu->tcfg;
-	struct delta_rec *dptr;
-	uint32_t delta_rec_size;
-	uint32_t nb_delta_rec;
-
-	off = tcfg->bstride;
-	dst = tcpu->dst;
-
-	dptr = tcpu->delta;
-	delta_rec_size = tcfg->delta_rec_size;
-	nb_delta_rec = delta_rec_size/sizeof(*dptr);
 
 	init_buffers(tcpu);
 
-	dst = tcpu->dst;
-	dptr = tcpu->delta;
 	desc->delta_rec_size = tcfg->delta_rec_size;
 
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
-		descs[i].dst_addr = rte_mem_virt2iova(dst);
-		descs[i].src_addr = rte_mem_virt2iova(dptr);
-		dst += off;
-		dptr +=  nb_delta_rec;
+		init_ap_delta_addr(tcpu, i, 1);
 	}
 }
 
@@ -230,27 +316,14 @@ static void
 prep_dsa_dc(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 {
 	uint32_t i;
-	char *src, *dst1, *dst2;
-	uint32_t off;
 	struct dsa_hw_desc *descs = tcpu->desc;
 	struct tcfg *tcfg = tcpu->tcfg;
 
 	init_buffers(tcpu);
 
-	off = tcfg->bstride;
-	src = tcpu->src;
-	dst1 = tcpu->dst1;
-	dst2 = tcpu->dst2;
-
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
-		descs[i].src_addr = rte_mem_virt2iova(src);
-		descs[i].dst_addr = rte_mem_virt2iova(dst1);
-		descs[i].dest2 = rte_mem_virt2iova(dst2);
-
-		dst1 += off;
-		dst2 += off;
-		src += off;
+		init_dc_addr(tcpu, i, 1);
 	}
 }
 
@@ -352,35 +425,28 @@ dsa_prep_dif_flags(int op, int blk_idx, struct dsa_hw_desc *hw,
 static void
 prep_dsa_dif(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 {
-
 	struct dsa_hw_desc *descs = tcpu->desc;
 	struct tcfg *tcfg = tcpu->tcfg;
+	char *src;
 	uint32_t i;
-	char *src, *dst;
-	uint32_t off_src, off_dst;
 	const uint32_t ref_tag = 0x87654321;
 	const uint16_t app_tag = 0xdcba;
 	int dif_flags = 0;
+	uint32_t off_src;
 
 	off_src = tcfg->bstride_arr[0];
-	off_dst = tcfg->bstride_arr[1];
 	src = tcpu->src;
-	dst = tcpu->dst;
 	dsa_prep_dif_flags(tcfg->op, tcfg->bl_idx, desc, app_tag, ref_tag);
 
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
 		if (tcfg->op != DSA_OPCODE_DIF_INS)
 			prepare_dif_buf(tcfg, src, 1, dif_flags, ref_tag, app_tag);
-		descs[i].src_addr = rte_mem_virt2iova(src);
 		descs[i].xfer_size =
 			tcfg->op == DSA_OPCODE_DIF_INS ? tcfg->blen :
 							dif_xfer_size(tcfg);
+		init_dif_addr(tcpu, i, 1);
 		src += off_src;
-		if (!dst)
-			continue;
-		descs[i].dst_addr = rte_mem_virt2iova(dst);
-		dst += off_dst;
 	}
 }
 

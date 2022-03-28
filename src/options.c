@@ -84,6 +84,7 @@ void print_usage(void)
 	printf(
 	"\t-b <batch_size>      ; Use batch descriptors with batch size descriptors in a batch.\n"
 	"\t-c                   ; Increment portal address between descriptors.\n"
+	"\t-C                   ; Include descriptor modification cycles in CPU utilization measurement\n"
 	"\t-D <delta %%>         ; Delta (specified as a percentage) between buffers for delta create and delta apply\n"
 	"\t-e <block length>    ; Block len [0-3] for dif operations\n"
 	"\t-f                   ; Set the cache control flag in descriptors\n"
@@ -555,7 +556,7 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 	n = 0;
 	nb_k = nb_K = 0;
 	while ((opt = getopt(argc, argv, "e:b:i:k:l:n:o:q:s:t:u::v:w:g:x:y:z:D:F:K:"
-			"L:M:S:T:W:mhcrpdfjPY")) != -1) {
+			"L:M:S:T:W:mhcrpdfjCPY")) != -1) {
 		int nb_a, nb_p;
 
 		switch (opt) {
@@ -566,6 +567,10 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 
 		case 'c':
 			tc->var_mmio = 1;
+			break;
+
+		case 'C':
+			tc->cpu_desc_work = true;
 			break;
 
 		case 'D':

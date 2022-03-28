@@ -589,6 +589,7 @@ print_tcfg(struct tcfg *tcfg)
 		MAKE_DISP_INT(flags_cmask, 16), MAKE_DISP_INT(flags_smask, 16),
 		MAKE_DISP_10(flags_nth_desc),
 		MAKE_DISP_10(nb_numa_node),
+		MAKE_DISP_10(cpu_desc_work)
 	};
 
 	t = tcfg_disp;

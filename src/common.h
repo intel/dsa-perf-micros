@@ -250,6 +250,8 @@ struct tcfg {
 
 	int drain_desc;
 	uint64_t drain_lat;
+
+	bool cpu_desc_work;
 };
 
 extern struct log_ctx log_ctx;
