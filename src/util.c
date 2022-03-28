@@ -670,6 +670,13 @@ calc_cpu(struct tcfg *tcfg)
 		tcfg->cpu_util = 100;
 }
 
+void
+calc_cpu_for_sec(struct tcfg *tcfg, int secs)
+{
+	tcfg->cycles = tcfg->cycles_per_sec * secs;
+	calc_cpu(tcfg);
+}
+
 static void
 calc_ops_rate(struct tcfg *tcfg)
 {

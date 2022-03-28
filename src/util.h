@@ -12,5 +12,6 @@ int verify_buf(struct tcfg_cpu *tcpu);
 void do_results(struct tcfg *tcfg);
 int cpu_pin(uint32_t cpu);
 int test_barrier(struct tcfg *tcfg, bool err);
+void calc_cpu_for_sec(struct tcfg *tcfg, int sec);
 
 #endif

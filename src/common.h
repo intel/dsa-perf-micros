@@ -146,6 +146,9 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	uint64_t drain_submitted;
 	uint64_t drain_total_cycles;
 	uint64_t nb_drain_completed;
+
+	uint64_t prev_iter;
+	uint64_t prev_retry;
 };
 
 struct op_info {
