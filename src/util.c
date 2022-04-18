@@ -659,14 +659,12 @@ static void
 calc_cpu(struct tcfg *tcfg)
 {
 	if (tcfg->dma) {
-		float retries_per_cycle;
+		uint64_t retry_cycles = (tcfg->retry * tcfg->cycles_per_sec)/tcfg->retries_per_sec;
 		/*
-		 * 100% retry util = retries_per_cycle * cycles
-		 *
-		 * cpu util = 100 - 100 * (retry/(100% retry util))
+		 * cycles available (ca) = retry cycles
+		 * cpu util % = 100 * (1 - ca/total cycles)
 		 */
-		retries_per_cycle= (1.0 * tcfg->retries_per_sec)/tcfg->cycles_per_sec;
-		tcfg->cpu_util = (100.0 - (100.0 * tcfg->retry)/(tcfg->cycles * retries_per_cycle));
+		tcfg->cpu_util = 100.0 * (1 - (1.0 * retry_cycles)/tcfg->cycles);
 	} else
 		tcfg->cpu_util = 100;
 }
