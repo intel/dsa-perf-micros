@@ -83,6 +83,16 @@ struct poll_cnt {
 	int os_dline_exp;
 };
 
+struct iter_stat {
+	union {
+		uint64_t stat[2];
+		struct {
+			uint64_t iter;
+			uint64_t retry;
+		};
+	};
+};
+
 /*
  • Structure containing test parameters unique to each thread of execution.
  * Parameters common to all threads should be placed in struct tcfg
@@ -116,8 +126,8 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	uint64_t cycles;	/* CPU cycle count for test on this CPU */
 	uint64_t tstart;
 	uint64_t tend;
-	uint64_t retry;
-	uint64_t curr_iter;
+	struct iter_stat prev_stat;
+	struct iter_stat curr_stat;
 	int err;		/* err code after init or test execution */
 	struct dsa_completion_record *comp;
 	struct dsa_completion_record *bcomp;
@@ -147,8 +157,6 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	uint64_t drain_total_cycles;
 	uint64_t nb_drain_completed;
 
-	uint64_t prev_iter;
-	uint64_t prev_retry;
 };
 
 struct op_info {

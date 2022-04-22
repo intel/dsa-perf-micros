@@ -207,7 +207,7 @@ test_memcpy(struct tcfg_cpu *tcpu)
 			delta += tcfg->delta_rec_size/sizeof(*delta);
 		}
 
-		tcpu->curr_iter++;
+		tcpu->curr_stat.iter++;
 	}
 
 	if (tcfg->iter)

@@ -575,7 +575,7 @@ submit_test_desc(struct tcfg_cpu *tcpu)
 			}
 		}
 
-		tcpu->curr_iter++;
+		tcpu->curr_stat.iter++;
 	}
 
 	if (tsc_cnt)
@@ -618,7 +618,7 @@ do_single_iter(struct tcfg_cpu *tcpu, int nb_desc)
 
 		npe = e;
 		k++;
-		tcpu->retry += poll_cnt.retry;
+		tcpu->curr_stat.retry += poll_cnt.retry;
 		while (k < nb_desc) {
 
 			e = (e + 1) % nb_desc;
@@ -664,7 +664,7 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 
 	tcfg = tcpu->tcfg;
 	tcpu->cycles = 0;
-	tcpu->retry = 0;
+	tcpu->curr_stat.retry = 0;
 	nb_desc = tcfg->nb_desc;
 
 	reset_cmpltn(tcpu, 0, nb_desc - 1, nb_desc);
@@ -681,12 +681,12 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 
 	inf = tcfg->iter == ~0U;
 
-	tcpu->curr_iter = 0;
+	tcpu->curr_stat.iter = 0;
 	tcpu->tstart = rdtsc();
 	for (i = 0; inf || i < tcfg->iter; i++) {
 		if (do_single_iter(tcpu, nb_desc))
 			goto error2;
-		tcpu->curr_iter++;
+		tcpu->curr_stat.iter++;
 	}
 	tcpu->tend = rdtsc();
 
@@ -808,20 +808,35 @@ test_run_fn(void *arg)
 }
 
 static void
-iter_count(struct tcfg *tcfg, uint64_t *iter, uint64_t *retry)
+iter_count_stat(uint64_t *stat, uint64_t *prev, uint64_t *curr)
+{
+	*stat += *curr - *prev;
+	*prev = *curr;
+}
+
+static void
+count_stat(struct iter_stat *is, struct tcfg_cpu *tcpu)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(is->stat); i++)
+		iter_count_stat(&is->stat[i], &tcpu->prev_stat.stat[i],
+				&tcpu->curr_stat.stat[i]);
+}
+
+static void
+iter_count(struct tcfg *tcfg, struct iter_stat *iter_stat)
 {
 	unsigned int i;
-
-	*iter = *retry = 0;
+	struct iter_stat is = {};
 
 	for (i = 0; i < tcfg->nb_cpus; i++) {
+		struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
 
-		*iter += tcfg->tcpu[i].curr_iter - tcfg->tcpu[i].prev_iter;
-		*retry += tcfg->tcpu[i].retry - tcfg->tcpu[i].prev_retry;
-
-		tcfg->tcpu[i].prev_iter = tcfg->tcpu[i].curr_iter;
-		tcfg->tcpu[i].prev_retry = tcfg->tcpu[i].retry;
+		count_stat(&is, tcpu);
 	}
+
+	*iter_stat = is;
 }
 
 static void *
@@ -884,13 +899,12 @@ test_run(struct tcfg *tcfg)
 		err = false;
 		while (!err) {
 			float bw;
-			uint64_t iter;
-			uint64_t retry;
+			struct iter_stat is;
 
 			sleep(tcfg->tval_secs);
-			iter_count(tcfg, &iter, &retry);
+			iter_count(tcfg, &is);
 
-			bw = (iter * iter_bytes)/(1E9 * tcfg->tval_secs);
+			bw = (is.iter * iter_bytes)/(1E9 * tcfg->tval_secs);
 
 			for (i = 0, err = false; i < tcfg->nb_cpus; i++) {
 				struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
@@ -905,7 +919,7 @@ test_run(struct tcfg *tcfg)
 			if (err)
 				continue;
 
-			tcfg->retry = retry / tcfg->nb_cpus;
+			tcfg->retry = is.retry / tcfg->nb_cpus;
 			calc_cpu_for_sec(tcfg, tcfg->tval_secs);
 
 			fprintf(stdout, "BW %f GB cpu util %f\n", bw, tcfg->cpu_util);

@@ -643,7 +643,7 @@ calc_cycles(struct tcfg *tcfg)
 				min = tcpu->tstart;
 			if (max < tcpu->tend)
 				max = tcpu->tend;
-			retry += tcpu->retry;
+			retry += tcpu->curr_stat.retry;
 		}
 	}
 
