@@ -518,6 +518,7 @@ calibrate_retries(uint64_t *retries_per_sec, uint32_t flags)
 	struct dsa_completion_record comp;
 	struct poll_cnt poll_cnt = {0};
 
+	flags &= ~CPL_UMWAIT;
 	set_alarm_done(&comp);
 
 	signal(SIGALRM, catch_alarm);

@@ -619,6 +619,8 @@ do_single_iter(struct tcfg_cpu *tcpu, int nb_desc)
 		npe = e;
 		k++;
 		tcpu->curr_stat.retry += poll_cnt.retry;
+		tcpu->curr_stat.mwait_cycles += poll_cnt.mwait_cycles;
+
 		while (k < nb_desc) {
 
 			e = (e + 1) % nb_desc;
@@ -920,6 +922,7 @@ test_run(struct tcfg *tcfg)
 				continue;
 
 			tcfg->retry = is.retry / tcfg->nb_cpus;
+			tcfg->mwait_cycles = is.mwait_cycles / tcfg->nb_cpus;
 			calc_cpu_for_sec(tcfg, tcfg->tval_secs);
 
 			fprintf(stdout, "BW %f GB cpu util %f\n", bw, tcfg->cpu_util);

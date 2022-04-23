@@ -625,9 +625,11 @@ calc_cycles(struct tcfg *tcfg)
 	uint64_t min, max;
 	uint64_t cycles;
 	uint64_t retry;
+	uint64_t mwait_cycles;
 
 	cycles = 0;
 	retry = 0;
+	mwait_cycles = 0;
 	max = min = 0;
 
 	for (i = 0; i < tcfg->nb_cpus; i++) {
@@ -644,12 +646,17 @@ calc_cycles(struct tcfg *tcfg)
 			if (max < tcpu->tend)
 				max = tcpu->tend;
 			retry += tcpu->curr_stat.retry;
+			mwait_cycles += tcpu->curr_stat.mwait_cycles;
 		}
 	}
 
 	tcfg->retry = retry/tcfg->nb_cpus;
-	if (tcfg->iter)
-		tcfg->retry = tcfg->retry/tcfg->iter;
+	tcfg->mwait_cycles = mwait_cycles/tcfg->nb_cpus;
+
+	if (tcfg->iter) {
+		tcfg->retry /= tcfg->iter;
+		tcfg->mwait_cycles /= tcfg->iter;
+	}
 
 	if (tcfg->iter)
 		tcfg->cycles = !tcfg->loop ? cycles/tcfg->nb_cpus : (max - min)/tcfg->iter;
@@ -660,11 +667,14 @@ calc_cpu(struct tcfg *tcfg)
 {
 	if (tcfg->dma) {
 		uint64_t retry_cycles = (tcfg->retry * tcfg->cycles_per_sec)/tcfg->retries_per_sec;
+		uint64_t ca;
+
 		/*
-		 * cycles available (ca) = retry cycles
+		 * cycles available (ca) = retry cycles + mwait cycles
 		 * cpu util % = 100 * (1 - ca/total cycles)
 		 */
-		tcfg->cpu_util = 100.0 * (1 - (1.0 * retry_cycles)/tcfg->cycles);
+		ca = retry_cycles + tcfg->mwait_cycles;
+		tcfg->cpu_util = 100.0 * (1 - (1.0 * ca)/tcfg->cycles);
 	} else
 		tcfg->cpu_util = 100;
 }

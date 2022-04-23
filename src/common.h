@@ -81,14 +81,16 @@ struct poll_cnt {
 	int mwait;
 	int monitor;
 	int os_dline_exp;
+	uint64_t mwait_cycles;
 };
 
 struct iter_stat {
 	union {
-		uint64_t stat[2];
+		uint64_t stat[3];
 		struct {
 			uint64_t iter;
 			uint64_t retry;
+			uint64_t mwait_cycles;
 		};
 	};
 };
@@ -156,7 +158,6 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	uint64_t drain_submitted;
 	uint64_t drain_total_cycles;
 	uint64_t nb_drain_completed;
-
 };
 
 struct op_info {
@@ -209,6 +210,8 @@ struct tcfg {
 	uint32_t op;		/* opcode */
 	uint64_t cycles;	/* avg of execution cycles across CPUs */
 	uint64_t retry;
+	uint64_t mwait_cycles;
+
 	bool verify;		/* verify data after test  */
 	bool dma;		/* use dma */
 	bool var_mmio;		/* portal mmio address is varied */
@@ -387,19 +390,22 @@ do_comp_flags(struct dsa_completion_record *comp, uint32_t flags,
 	struct poll_cnt *poll_cnt)
 {
 	if (flags & CPL_PAUSE) {
+		poll_cnt->retry++;
 		__builtin_ia32_pause();
 	} else if (flags & CPL_UMWAIT) {
+
 		umonitor(comp);
 		if (comp->status == 0) {
+			uint64_t tsc = __rdtsc();
 			uint64_t delay;
 
-			delay = __rdtsc() + UMWAIT_DELAY;
+			delay = tsc + UMWAIT_DELAY;
 			poll_cnt->os_dline_exp += umwait(delay, UMWAIT_STATE);
-			poll_cnt->mwait++;
+			poll_cnt->mwait_cycles += __rdtsc() - tsc;
 		}
 		poll_cnt->monitor++;
-	}
-
+	} else
+		poll_cnt->retry++;
 }
 
 static __always_inline int
@@ -408,10 +414,8 @@ poll_comp_common(struct dsa_completion_record *comp,
 {
 	struct poll_cnt lcnt = { 0 };
 
-	while (comp->status == 0 && lcnt.retry < MAX_COMP_RETRY) {
+	while (comp->status == 0 && lcnt.retry < MAX_COMP_RETRY)
 		do_comp_flags(comp, flags, &lcnt);
-		lcnt.retry++;
-	}
 
 	if (lcnt.retry > MAX_COMP_RETRY)
 		ERR("timed out\n");
