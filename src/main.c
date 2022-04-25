@@ -593,63 +593,52 @@ error1:
 static __always_inline int
 do_single_iter(struct tcfg_cpu *tcpu, int nb_desc)
 {
-	int k;
-	int npe, ope, e, s, ns;
+	int k;	/* completed descriptor count */
+	int s;	/* last descriptor submitted */
 	struct dsa_completion_record *c;
 
-	k = 0;
-	e = 0;
-	s = tcpu->s;
+	s = k = 0;
 
 	while (k < nb_desc) {
-		uint8_t tstatus;
 		struct poll_cnt poll_cnt = { 0 };
 
-		ope = e;
-
-		if (poll_comp(tcpu, e, &poll_cnt, tcpu->tcfg->misc_flags)) {
-			c = comp_rec(tcpu, e);
+		if (poll_comp(tcpu, k, &poll_cnt, tcpu->tcfg->misc_flags)) {
+			c = comp_rec(tcpu, k);
 			if (c->status != DSA_COMP_SUCCESS) {
-				ERR("%d comp status %d\n", e, c->status);
+				ERR("%d comp status %d\n", k, c->status);
 				tcpu->err = 1;
 				return 1;
 			}
+
 		}
 
-		npe = e;
-		k++;
 		tcpu->curr_stat.retry += poll_cnt.retry;
 		tcpu->curr_stat.mwait_cycles += poll_cnt.mwait_cycles;
 
+		c = comp_rec(tcpu, k);
 		while (k < nb_desc) {
+			uint8_t tstatus;
 
-			e = (e + 1) % nb_desc;
-			c = comp_rec(tcpu, e);
+			c = comp_rec(tcpu, k);
 			tstatus = c->status;
 			if (tstatus == 0)
 				break;
 
 			if (tstatus > 1) {
-				ERR("desc(%d) Unexpected status 0x%x\n", e, tstatus);
+				ERR("desc(%d) Unexpected status 0x%x\n", k, tstatus);
 				tcpu->err = 1;
 				return 1;
 			}
 
 			k++;
 			tcpu->crdt++;
-			npe = e;
+			c->status = 0;
 		}
 
 
-		/* desc[ope - npe] are complete */
-		reset_cmpltn(tcpu, ope, npe, nb_desc);
-
 		__builtin_ia32_sfence();
-		ns = submit_b2e(tcpu, s, npe);
-		s = (s + ns) % nb_desc;
+		s += submit_b2e(tcpu, s, k - 1);
 	}
-
-	tcpu->s = s;
 
 	return 0;
 }
@@ -686,8 +675,10 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 	tcpu->curr_stat.iter = 0;
 	tcpu->tstart = rdtsc();
 	for (i = 0; inf || i < tcfg->iter; i++) {
-		if (do_single_iter(tcpu, nb_desc))
+		if (do_single_iter(tcpu, nb_desc)) {
+			ERR("Error iteration: %d\n", i);
 			goto error2;
+		}
 		tcpu->curr_stat.iter++;
 	}
 	tcpu->tend = rdtsc();
