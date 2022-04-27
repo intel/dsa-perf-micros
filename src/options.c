@@ -555,8 +555,8 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 
 	n = 0;
 	nb_k = nb_K = 0;
-	while ((opt = getopt(argc, argv, "e:b:i:k:l:n:o:q:s:t:u::v:w:g:x:y:z:D:F:K:"
-			"L:M:S:T:W:mhcrpdfjCPY")) != -1) {
+	while ((opt = getopt(argc, argv, "b:e:i:k:l:n:o:q:s:t:u::v:w:x:y:z:D:F:K:"
+			"L:M:S:T:W:chfjmCPY")) != -1) {
 		int nb_a, nb_p;
 
 		switch (opt) {
