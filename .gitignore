@@ -8,6 +8,7 @@ src/dsa_perf_micros
 aclocal.m4
 configure
 Makefile.in
+Makefile
 version.m4
 config.log
 config.status
