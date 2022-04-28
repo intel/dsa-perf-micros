@@ -320,7 +320,7 @@ print_status(uint8_t sc, struct dsa_completion_record *comp)
 		break;
 
 	case DSA_COMP_BATCH_FAIL:
-		ERR("batch failed\n");
+		ERR("batch failed, completed %d\n", comp->descs_completed);
 		break;
 
 	case DSA_COMP_DIF_ERR:
@@ -337,14 +337,13 @@ static void
 print_batch_comp_err(struct tcfg_cpu *tcpu, int d)
 {
 	int i;
-	struct dsa_hw_desc *desc = tcpu->desc + d;
+	struct dsa_hw_desc *desc = tcpu->bdesc + d;
+	struct dsa_completion_record *comp = tcpu->comp +
+			d * tcpu->tcfg->batch_sz * comp_rec_size(tcpu);
 
-	for (i = 0; i < desc->desc_count; i++) {
-		struct dsa_completion_record *comp = comp_rec(tcpu, d);
-
-		print_status(comp->status & 0x3f, comp);
-	}
-
+	for (i = 0; i < desc->desc_count; i++)
+		print_status(comp->status & 0x3f,
+			comp + i * comp_rec_size(tcpu));
 }
 
 static void
@@ -355,7 +354,7 @@ print_comp_err(struct tcfg_cpu *tcpu, int d)
 
 	print_status(sc, comp);
 	if (sc == DSA_COMP_BATCH_FAIL)
-		print_batch_comp_err(tcpu, d * tcpu->tcfg->batch_sz);
+		print_batch_comp_err(tcpu, d);
 }
 
 static __always_inline int
