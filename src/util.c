@@ -64,24 +64,27 @@ prep_delta_src2(char *p, int pdiff, uint64_t blen)
 	}
 }
 
-void
-init_buffers(struct tcfg_cpu *tcpu)
+static void
+init_bv(struct tcfg_cpu *tcpu, char **b, uint8_t *v)
 {
-	unsigned int i, j;
-	char *b[3] = { NULL };
-	uint8_t v[3] = { 0 };
-	char *src, *src1, *src2;
+	char *ib[3] = { NULL };
+	uint8_t iv[3] = { 0 };
+
 	struct tcfg *tcfg;
+	char *src, *src1, *src2;
 	struct delta_rec *dptr;
 	uint32_t nb_delta_rec;
+	int i;
 
 	tcfg = tcpu->tcfg;
 	src = tcpu->src;
 	src1 = tcpu->src1;
 	src2 = tcpu->src2;
 
-	if (!tcfg->verify && !tcfg->op_info->init_req)
-		return;
+	tcfg = tcpu->tcfg;
+
+	memcpy(b, ib, ARRAY_SIZE(ib) * sizeof(ib[0]));
+	memcpy(v, iv, ARRAY_SIZE(iv) * sizeof(iv[0]));
 
 	switch (tcfg->op) {
 
@@ -106,8 +109,8 @@ init_buffers(struct tcfg_cpu *tcpu)
 	case DSA_OPCODE_CR_DELTA:
 		b[0] = src1;
 		v[0] = TEST_CHAR;
-		for (j = 0; j < tcfg->nb_bufs; j++)
-			prep_delta_src2(tcpu->src2 + j * tcfg->bstride,
+		for (i = 0; i < tcfg->nb_bufs; i++)
+			prep_delta_src2(tcpu->src2 + i * tcfg->bstride,
 					tcfg->delta/10, tcfg->blen);
 		break;
 
@@ -139,6 +142,20 @@ init_buffers(struct tcfg_cpu *tcpu)
 		break;
 
 	}
+}
+
+void
+init_buffers(struct tcfg_cpu *tcpu)
+{
+	char *b[3];
+	uint8_t v[3];
+	unsigned int i;
+	struct tcfg *tcfg = tcpu->tcfg;
+
+	if (!tcfg->verify && !tcfg->op_info->init_req)
+		return;
+
+	init_bv(tcpu, b, v);
 
 	for (i = 0; i < ARRAY_SIZE(b); i++) {
 		if (b[i])
