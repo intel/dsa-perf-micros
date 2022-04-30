@@ -320,7 +320,7 @@ print_status(uint8_t sc, struct dsa_completion_record *comp)
 		break;
 
 	case DSA_COMP_BATCH_FAIL:
-		ERR("batch failed, completed %d\n", comp->descs_completed);
+		ERR("batch failed, completed %d\n", comp->bytes_completed);
 		break;
 
 	case DSA_COMP_DIF_ERR:
@@ -376,7 +376,7 @@ poll_comp(struct tcfg_cpu *tcpu, int i, struct poll_cnt *poll_cnt, uint64_t flag
 	return rc;
 }
 
-typedef int (*check_fn)(struct tcfg_cpu *tcpu, int k);
+typedef int (*check_fn)(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc);
 
 static int
 run_check(struct tcfg_cpu *tcpu, int k, int n, check_fn check_fn)
@@ -387,7 +387,7 @@ run_check(struct tcfg_cpu *tcpu, int k, int n, check_fn check_fn)
 	d = k;
 	l = (k + n) % tcfg->nb_desc;
 	do {
-		if (check_fn(tcpu, d))
+		if (check_fn(tcpu, desc_ptr(tcpu) + d))
 			return 1;
 
 		d = (d + 1) % tcfg->nb_desc;
@@ -400,16 +400,16 @@ run_check(struct tcfg_cpu *tcpu, int k, int n, check_fn check_fn)
 }
 
 static int
-check_comp(struct tcfg_cpu *tcpu, int d)
+check_comp(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 {
 	uint64_t flags;
 	struct dsa_completion_record *c;
-	struct dsa_hw_desc *desc;
 	struct tcfg *tcfg;
+	int d;
 
 	tcfg = tcpu->tcfg;
 	flags = tcfg->misc_flags;
-	desc = desc_ptr(tcpu) + d;
+	d = desc - desc_ptr(tcpu);
 
 	if (poll_comp(tcpu, d, NULL, flags)) {
 		c = comp_rec(tcpu, d);
@@ -434,13 +434,16 @@ check_comp(struct tcfg_cpu *tcpu, int d)
 }
 
 static int
-check_result_one(struct tcfg_cpu *tcpu, int k)
+check_result_one(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 {
-	struct dsa_completion_record *comp;
-	struct dsa_hw_desc *desc;
+	int i;
+	struct dsa_completion_record *comp =
+			desc->opcode == DSA_OPCODE_BATCH ? tcpu->bcomp :
+							tcpu->comp;
+	uint32_t k = desc->opcode == DSA_OPCODE_BATCH ? desc - tcpu->bdesc :
+							desc - tcpu->desc;
 
-	desc = desc_ptr(tcpu) + k;
-	comp = comp_rec(tcpu, k);
+	PTR_ADD(comp, k * comp_rec_size(tcpu));
 
 	switch (desc->opcode) {
 
@@ -459,6 +462,12 @@ check_result_one(struct tcfg_cpu *tcpu, int k)
 			tcpu->err = 1;
 		}
 		break;
+
+	case DSA_OPCODE_BATCH:
+		for (i = 0; i < desc->desc_count; i++)
+			if (check_result_one(tcpu,
+				&tcpu->desc[k * tcpu->tcfg->batch_sz + i]))
+				return tcpu->err;
 	}
 
 	return tcpu->err;

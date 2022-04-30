@@ -17,6 +17,7 @@
 #define ALIGN(l) (((l) + 0xfff) & ~(0xfff))
 #define ARRAY_SIZE(x) (sizeof((x))/sizeof((x)[0]))
 #define MAX_COMP_RETRY	2000000000
+#define PTR_ADD(p, a) { p = (void *)((uintptr_t)(p) + (uintptr_t)a); }
 
 /* max number of operands e.g., dual cast - src1, dst1, dst2 */
 #define NUM_ADDR_MAX	3

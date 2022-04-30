@@ -165,7 +165,6 @@ alloc_buf_offsets(struct tcfg *tcfg)
 	}
 }
 
-#define PTR_ADD(p, a) { p = (void *)((uintptr_t)(p) + (uintptr_t)a); }
 
 static int
 alloc_mmio_mem(struct tcfg *tcfg)
