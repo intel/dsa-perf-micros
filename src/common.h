@@ -427,17 +427,18 @@ poll_comp_common(struct dsa_completion_record *comp,
 }
 
 static inline uint64_t
+align(uint64_t v, uint64_t alignto)
+{
+	return  (v + alignto - 1) & ~(alignto - 1);
+}
+
+static inline uint64_t
 page_align_sz(struct tcfg *tcfg, uint64_t len)
 {
 	static const uint64_t pg_sz_arr[] = {4*1024, 2 * 1024 * 1024, 1024 * 1024 * 1024};
 	int pg_size = tcfg->pg_size;
-	uint64_t align_sz;
 
-	align_sz = len;
-
-	align_sz = (align_sz + pg_sz_arr[pg_size] - 1) & ~(pg_sz_arr[pg_size] - 1);
-
-	return align_sz;
+	return align(len, pg_sz_arr[pg_size]);
 }
 
 static inline struct dsa_hw_desc *
