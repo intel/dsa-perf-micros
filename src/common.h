@@ -112,7 +112,6 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 		pthread_t thread;
 		unsigned long pid;
 	};
-	int mmap_fd;
 	char *dname;
 	int wq_id;
 
