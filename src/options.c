@@ -83,6 +83,8 @@ void print_usage(void)
 {
 	printf(
 	"\t-b <batch_size>      ; Use batch descriptors with batch size descriptors in a batch.\n"
+	"\t-B                   ; PCI device/resource list to mmap memory from\n"
+        "                         e.g., m,<BDF/resource0+4096> => mem is src, BDF/resource0+4096 is dst\n"
 	"\t-c                   ; Increment portal address between descriptors.\n"
 	"\t-C                   ; Include descriptor modification cycles in CPU utilization measurement\n"
 	"\t-D <delta %%>         ; Delta (specified as a percentage) between buffers for delta create and delta apply\n"
@@ -120,6 +122,76 @@ void print_usage(void)
 	"\t-z                   ; Comma separated list of directives for data placement for respective buffers.\n"
 	"\t                       the specifiers are -P (fetch into the L1 cache), -D (demote to LLC),\n"
 	"\t                       -F (flush to memory)\n");
+}
+
+static char *
+make_sysfs_filename(char *bdf)
+{
+	static char tmp[] = "/sys/bus/pci/devices/0000:";
+	int lf;
+	char *f;
+
+	if (!bdf)
+		return NULL;
+
+	lf = snprintf(NULL, 0, "%s%s", tmp, bdf);
+
+	f = calloc(1, lf + 1);
+	if (!f)
+		return NULL;
+
+	snprintf(f, lf + 1, "%s%s", tmp, bdf);
+
+	return f;
+}
+
+static int
+parse_bdf_list(struct mmio_mem *mmio_mem, int *mmio_idx, char *optarg)
+{
+	char *bdf_offset;
+	int n;
+	int bi;
+
+	bi = 0;
+
+	while (sscanf(optarg,  "%m[^,]%n", &bdf_offset, &n) == 1 && bi < 3) {
+		char *bdf;
+		int offset;
+
+		if (strcmp(bdf_offset, "m") != 0) {
+			int j;
+			int lf;
+
+			sscanf(bdf_offset,  "%m[^+]%d", &bdf, &offset);
+
+			mmio_mem[bi].bfile = make_sysfs_filename(bdf);
+			free(bdf);
+			if (mmio_mem[bi].bfile == NULL)
+				return -ENOMEM;
+
+			lf = strlen(mmio_mem[bi].bfile);
+			mmio_mem[bi].mmio_offset = offset;
+
+			for(j = 0; j < bi; j++) {
+				if (mmio_mem[j].bfile &&
+					!strncmp(mmio_mem[bi].bfile, mmio_mem[j].bfile, lf)) {
+					mmio_idx[bi] = j;
+					goto next_bdf;
+				}
+			}
+
+			mmio_idx[bi] = bi;
+		}
+ next_bdf:
+		free(bdf_offset);
+		optarg += n;
+		if (*optarg != ',')
+			break;
+		optarg++;
+		bi++;
+	}
+
+	return 0;
 }
 
 static int
@@ -552,10 +624,11 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 	uint64_t op;
 	int n;
 	unsigned int nb_k, nb_K;
+	int rc;
 
 	n = 0;
 	nb_k = nb_K = 0;
-	while ((opt = getopt(argc, argv, "b:e:i:k:l:n:o:q:s:t:u::v:w:x:y:z:D:F:K:"
+	while ((opt = getopt(argc, argv, "b:e:i:k:l:n:o:q:s:t:u::v:w:x:y:z:B:D:F:K:"
 			"L:M:S:T:W:chfjmCPY")) != -1) {
 		int nb_a, nb_p;
 
@@ -563,6 +636,12 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 
 		case 'b':
 			tc->batch_sz = strtoul(optarg, NULL, 0);
+			break;
+
+		case 'B':
+			rc = parse_bdf_list(tc->mmio_mem, tc->mmio_idx, optarg);
+			if (rc)
+				return rc;
 			break;
 
 		case 'c':

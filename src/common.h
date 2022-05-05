@@ -177,6 +177,14 @@ struct numa_mem {
 	int id;
 };
 
+struct mmio_mem {
+	char *bfile;
+	uint64_t mmio_offset;
+	void *base_addr;
+	uint64_t sz;
+	int fd;
+};
+
 struct thread_data {
 	pthread_mutex_t mutex;
 	pthread_cond_t cv;
@@ -262,6 +270,9 @@ struct tcfg {
 	uint64_t drain_lat;
 
 	bool cpu_desc_work;
+
+	int mmio_idx[3];
+	struct mmio_mem mmio_mem[3];
 };
 
 extern struct log_ctx log_ctx;

@@ -88,10 +88,28 @@ alloc_offset(uint64_t sz, uint64_t *ptotal)
 	return p;
 }
 
+static int
+buffer_id_to_node(struct tcfg_cpu *tcpu, int bid)
+{
+	struct tcfg *tcfg = tcpu->tcfg;
+	int numa_alloc_id = tcpu->numa_alloc_id;
+
+	return tcfg->numa_node[numa_alloc_id][bid] == -1 ?
+		tcpu->numa_node : tcfg->numa_node[numa_alloc_id][bid];
+}
+
 static void*
 alloc_numa_offset(struct tcfg *tcfg, uint64_t sz, int numa_node)
 {
 	return alloc_offset(sz, &numa_mem_ptr(tcfg, numa_node)->sz);
+}
+
+static void*
+alloc_mmio_offset(struct tcfg *tcfg, uint64_t sz, int bid)
+{
+	int mmio_idx = tcfg->mmio_idx[bid];
+
+	return alloc_offset(sz, &tcfg->mmio_mem[mmio_idx].sz);
 }
 
 static void
@@ -105,7 +123,6 @@ alloc_buf_offsets(struct tcfg *tcfg)
 		struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
 		uint64_t misc_b1_sz = tcfg->misc_flags & DEVTLB_INIT_FLAG ? tcfg->blen : 0;
 		uint64_t misc_b2_sz = misc_b1_sz + comp_rec_size(tcpu);
-		int numa_alloc_id = tcpu->numa_alloc_id;
 
 		INFO("CPU %d Node %d\n", tcpu->cpu_num, tcpu->numa_node);
 		if (tcfg->dma) {
@@ -127,11 +144,14 @@ alloc_buf_offsets(struct tcfg *tcfg)
 
 		for (j = 0; j < tcfg->op_info->nb_buf; j++) {
 			uint64_t sz = tcfg->bstride_arr[j] * tcfg->nb_bufs;
-			int n = tcfg->numa_node[numa_alloc_id][j] == -1 ? tcpu->numa_node :
-							tcfg->numa_node[numa_alloc_id][j];
 
-			tcpu->b[j] = alloc_numa_offset(tcfg, sz, n);
-			INFO("Buf %d Node %d offset %p\n", j, n, tcpu->b[j]);
+			if (tcfg->mmio_mem[j].bfile)
+				tcpu->b[j] = alloc_mmio_offset(tcfg, sz, j);
+			else {
+				int n = buffer_id_to_node(tcpu, j);
+				tcpu->b[j] = alloc_numa_offset(tcfg, sz, n);
+				INFO("Buf %d Node %d offset %p\n", j, n, tcpu->b[j]);
+			}
 		}
 
 		if (misc_b1_sz == 0)
@@ -146,6 +166,40 @@ alloc_buf_offsets(struct tcfg *tcfg)
 }
 
 #define PTR_ADD(p, a) { p = (void *)((uintptr_t)(p) + (uintptr_t)a); }
+
+static int
+alloc_mmio_mem(struct tcfg *tcfg)
+{
+	int fd;
+	int i;
+
+	for (i = 0; i < 3; i++) {
+		void *addr;
+		char *fname;
+
+		if (tcfg->mmio_mem[i].sz == 0)
+			continue;
+
+		fname = tcfg->mmio_mem[i].bfile;
+		fd = open(fname, O_RDWR);
+		if (fd < 0) {
+			ERR("Error opening file : %s : %s\n", strerror(errno), fname);
+			return -errno;
+		}
+
+		addr = mmap(NULL, tcfg->mmio_mem[i].sz, PROT_READ | PROT_WRITE,
+			MAP_POPULATE | MAP_SHARED, fd, tcfg->mmio_mem[i].mmio_offset);
+		if (addr == MAP_FAILED) {
+			ERR("Error mapping mmio: %s : %s\n", strerror(errno), fname);
+			return -errno;
+		}
+
+		close(fd);
+		tcfg->mmio_mem[i].base_addr = addr;
+	}
+
+	return 0;
+}
 
 static int
 alloc_node_mem(struct tcfg *tcfg, uint64_t sz, int n, void **paddr)
@@ -252,11 +306,14 @@ add_base_addr(struct tcfg *tcfg)
 		for (j = 0; j < tcfg->op_info->nb_buf; j++) {
 			uint32_t off = tcfg->op_info->b_off[j];
 			char **pb = (char **)((char *)tcpu + off);
-			int numa_alloc_id = tcpu->numa_alloc_id;
 
-			n = tcfg->numa_node[numa_alloc_id][j] == -1 ? tcpu->numa_node :
-							tcfg->numa_node[numa_alloc_id][j];
-			PTR_ADD(tcpu->b[j], numa_base_addr(tcfg, n));
+			if (tcfg->mmio_mem[j].bfile) {
+				int idx = tcfg->mmio_idx[j];
+				ba = (uint64_t)tcfg->mmio_mem[idx].base_addr;
+			} else
+				ba = numa_base_addr(tcfg, buffer_id_to_node(tcpu, j));
+
+			PTR_ADD(tcpu->b[j], ba);
 			*pb = tcpu->b[j];
 		}
 
@@ -275,7 +332,9 @@ test_init_mem(struct tcfg *tcfg)
 	rc = alloc_numa_mem(tcfg);
 	if (rc)
 		return rc;
-
+	rc = alloc_mmio_mem(tcfg);
+	if (rc)
+		return rc;
 	add_base_addr(tcfg);
 
 	return 0;
@@ -434,6 +493,11 @@ test_free(struct tcfg *tcfg)
 	for (i = 0; i < tcfg->nb_numa_node; i++)
 		munmap(tcfg->numa_mem[i].base_addr,
 			page_align_sz(tcfg, tcfg->numa_mem[i].sz));
+
+	for (i = 0; i < tcfg->op_info->nb_buf; i++) {
+		munmap(tcfg->mmio_mem[i].base_addr, align(tcfg->mmio_mem[i].sz, 4096));
+		free(tcfg->mmio_mem[i].bfile);
+	}
 
 	if (tcfg->td) {
 		pthread_mutexattr_destroy(&tcfg->td->mutex_attr);
