@@ -276,6 +276,8 @@ struct tcfg {
 
 	int mmio_idx[3];
 	struct mmio_mem mmio_mem[3];
+
+	bool stop;
 };
 
 extern struct log_ctx log_ctx;

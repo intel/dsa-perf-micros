@@ -690,7 +690,7 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 
 	tcpu->curr_stat.iter = 0;
 	tcpu->tstart = rdtsc();
-	for (i = 0; inf || i < tcfg->iter; i++) {
+	for (i = 0; !tcfg->stop && (inf || i < tcfg->iter) ; i++) {
 		if (do_single_iter(tcpu, nb_desc)) {
 			ERR("Error iteration: %d\n", i);
 			goto error2;
@@ -902,7 +902,6 @@ test_run(struct tcfg *tcfg)
 	}
 
 	if (tcfg->iter == ~0U) {
-		bool err;
 		uint64_t iter_bytes =  tcfg->nb_bufs * tcfg->blen;
 
 		err = false;
@@ -925,8 +924,10 @@ test_run(struct tcfg *tcfg)
 				}
 			}
 
-			if (err)
+			if (err) {
+				tcfg->stop = true;
 				continue;
+			}
 
 			tcfg->retry = is.retry / tcfg->nb_cpus;
 			tcfg->mwait_cycles = is.mwait_cycles / tcfg->nb_cpus;
@@ -944,13 +945,9 @@ test_run(struct tcfg *tcfg)
 			pthread_join(tcfg->tcpu[i].thread, NULL);
 	}
 
-	err = 0;
-	for (i = 0; i < tcfg->nb_cpus; i++) {
+	for (i = 0; !err && i < tcfg->nb_cpus; i++)
 		if (tcfg->tcpu[i].err)
 			err = tcfg->tcpu[i].err;
-		if (err)
-			break;
-	}
 
 err_ret:
 	return err;
