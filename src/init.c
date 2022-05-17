@@ -592,7 +592,7 @@ calibrate_retries(uint64_t *retries_per_sec, uint32_t flags)
 	signal(SIGALRM, catch_alarm);
 	alarm(1);
 
-	poll_comp_common(&comp, &poll_cnt, flags);
+	poll_comp_common(&comp, &poll_cnt, flags, ~0UL);
 	*retries_per_sec = poll_cnt.retry;
 }
 

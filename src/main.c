@@ -364,7 +364,7 @@ poll_comp(struct tcfg_cpu *tcpu, int i, struct poll_cnt *poll_cnt, uint64_t flag
 	struct dsa_hw_desc *desc;
 	int rc;
 
-	rc = poll_comp_common(comp, poll_cnt,  flags);
+	rc = poll_comp_common(comp, poll_cnt, flags, MAX_COMP_RETRY);
 	desc = desc_ptr(tcpu);
 	if (!rc && desc[i].opcode == DSA_OPCODE_DRAIN && poll_cnt && poll_cnt->retry > 0) {
 		tcpu->drain_total_cycles += rdtsc() - tcpu->drain_submitted;

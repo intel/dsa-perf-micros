@@ -78,9 +78,11 @@ struct wq_info {
 };
 
 struct poll_cnt {
-	int retry;
+	union {
+		int retry;
+		int monitor;
+	};
 	int mwait;
-	int monitor;
 	int os_dline_exp;
 	uint64_t mwait_cycles;
 };
@@ -405,7 +407,6 @@ do_comp_flags(struct dsa_completion_record *comp, uint32_t flags,
 	struct poll_cnt *poll_cnt)
 {
 	if (flags & CPL_PAUSE) {
-		poll_cnt->retry++;
 		__builtin_ia32_pause();
 	} else if (flags & CPL_UMWAIT) {
 
@@ -418,21 +419,19 @@ do_comp_flags(struct dsa_completion_record *comp, uint32_t flags,
 			poll_cnt->os_dline_exp += umwait(delay, UMWAIT_STATE);
 			poll_cnt->mwait_cycles += __rdtsc() - tsc;
 		}
-		poll_cnt->monitor++;
-	} else
-		poll_cnt->retry++;
+	}
 }
 
 static __always_inline int
 poll_comp_common(struct dsa_completion_record *comp,
-		struct poll_cnt  *poll_cnt, uint64_t flags)
+		struct poll_cnt  *poll_cnt, uint64_t flags, uint64_t max_retry)
 {
 	struct poll_cnt lcnt = { 0 };
 
-	while (comp->status == 0 && lcnt.retry < MAX_COMP_RETRY)
+	while (comp->status == 0 && lcnt.retry++ < max_retry)
 		do_comp_flags(comp, flags, &lcnt);
 
-	if (lcnt.retry > MAX_COMP_RETRY)
+	if (lcnt.retry > max_retry)
 		ERR("timed out\n");
 
 	if (poll_cnt)
