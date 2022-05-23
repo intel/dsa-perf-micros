@@ -640,7 +640,7 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 			break;
 
 		case 'B':
-			rc = parse_bdf_list(tc->mmio_mem, tc->mmio_idx, optarg);
+			rc = parse_bdf_list(tc->mmio_mem, tc->mmio_fd_idx, optarg);
 			if (rc)
 				return rc;
 			break;

@@ -273,8 +273,8 @@ struct tcfg {
 
 	bool cpu_desc_work;
 
-	int mmio_idx[3];			/* address index (0 - 2) into mmio_mem */
-	struct mmio_mem mmio_mem[3];		/* per mmio file info - mmio files maybe duplicated
+	int mmio_fd_idx[NUM_ADDR_MAX];		/* address index (0 - 2) into mmio_mem */
+	struct mmio_mem mmio_mem[NUM_ADDR_MAX];	/* per mmio file info - mmio files maybe duplicated
 						 * in that case, mmio_idx points to a single mmio_mem
 						 * struct
 						 */

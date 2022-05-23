@@ -104,7 +104,7 @@ alloc_numa_offset(struct tcfg *tcfg, uint64_t sz, int numa_node)
 static void*
 alloc_mmio_offset(struct tcfg *tcfg, uint64_t sz, int bid)
 {
-	int fd = tcfg->mmio_idx[bid];
+	int fd = tcfg->mmio_fd_idx[bid];
 
 	return alloc_offset(sz, &tcfg->mmio_mem[fd].sz);
 }
@@ -118,8 +118,6 @@ alloc_buf_offsets(struct tcfg *tcfg)
 	for (i = 0; i < tcfg->nb_cpus; i++) {
 		int node = tcfg->tcpu[i].numa_node;
 		struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
-		uint64_t misc_b1_sz = tcfg->misc_flags & DEVTLB_INIT_FLAG ? tcfg->blen : 0;
-		uint64_t misc_b2_sz = misc_b1_sz + comp_rec_size(tcpu);
 
 		INFO("CPU %d Node %d\n", tcpu->cpu_num, tcpu->numa_node);
 		if (tcfg->dma) {
@@ -138,8 +136,15 @@ alloc_buf_offsets(struct tcfg *tcfg)
 			INFO("comp %p bcomp %p desc %p bdesc %p\n",
 				tcpu->comp, tcpu->bcomp, tcpu->desc, tcpu->bdesc);
 		}
+	}
 
-		for (j = 0; j < tcfg->op_info->nb_buf; j++) {
+	/*
+	 * allocate for all b[0] followed by b[1] and so on, this logic
+	 * uses the offsets in bdf:offset for -B (mmio)  correctly
+	 */
+	for (j = 0; j < tcfg->op_info->nb_buf; j++) {
+		for (i = 0; i < tcfg->nb_cpus; i++) {
+			struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
 			uint64_t sz = tcfg->bstride_arr[j] * tcfg->nb_bufs;
 
 			if (tcfg->mmio_mem[j].bfile)
@@ -150,15 +155,21 @@ alloc_buf_offsets(struct tcfg *tcfg)
 				INFO("Buf %d Node %d offset %p\n", j, n, tcpu->b[j]);
 			}
 		}
+	}
 
-		if (misc_b1_sz == 0)
-			continue;
+	if (tcfg->misc_flags & DEVTLB_INIT_FLAG) {
+		uint64_t misc_b1_sz = tcfg->blen;
 
-		node = tcfg->tcpu[i].numa_node;
-		tcpu->misc_b1 = alloc_numa_offset(tcfg, misc_b1_sz, node);
-		tcpu->misc_b2 = alloc_numa_offset(tcfg, misc_b2_sz, node);
+		for (i = 0; i < tcfg->nb_cpus; i++) {
+			struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
+			int node = tcpu->numa_node;
+			uint64_t misc_b2_sz = misc_b1_sz +  sizeof(tcpu->comp[0]) *  2;
 
-		INFO("misc_b1 %p misc_b2 %p\n", tcpu->misc_b1, tcpu->misc_b2);
+			tcpu->misc_b1 = alloc_numa_offset(tcfg, misc_b1_sz, node);
+			tcpu->misc_b2 = alloc_numa_offset(tcfg, misc_b2_sz, node);
+
+			INFO("misc_b1 %p misc_b2 %p\n", tcpu->misc_b1, tcpu->misc_b2);
+		}
 	}
 }
 
@@ -307,7 +318,7 @@ add_base_addr(struct tcfg *tcfg)
 			char **pb = (char **)((char *)tcpu + off);
 
 			if (tcfg->mmio_mem[j].bfile) {
-				int idx = tcfg->mmio_idx[j];
+				int idx = tcfg->mmio_fd_idx[j];
 				ba = (uint64_t)tcfg->mmio_mem[idx].base_addr;
 			} else
 				ba = numa_base_addr(tcfg, buffer_id_to_node(tcpu, j));
