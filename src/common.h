@@ -190,15 +190,6 @@ struct mmio_mem {
 	int fd;
 };
 
-struct thread_data {
-	pthread_mutex_t mutex;
-	pthread_cond_t cv;
-	pthread_mutexattr_t mutex_attr;
-	pthread_condattr_t cv_attr;
-	uint32_t barrier_cnt;
-	bool err;
-};
-
 /*
  • This structure contains test parameters and controls for a given
  • invocation of the tool, and common across all executing threads.

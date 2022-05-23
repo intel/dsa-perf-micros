@@ -17,6 +17,7 @@
 
 #include "common.h"
 #include "options.h"
+#include "util.h"
 
 struct parse_info {
 	int *nb_node;
@@ -862,7 +863,6 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 static int
 parse_options(int argc, char **argv, struct tcfg *tc, struct parse_info *pi)
 {
-	int share;
 	int rc;
 	unsigned int i;
 	struct cpu_wq_info *cpu_idx;
@@ -902,22 +902,9 @@ parse_options(int argc, char **argv, struct tcfg *tc, struct parse_info *pi)
 		return -ENOMEM;
 	}
 
-	tc->td = mmap(NULL, sizeof(*tc->td), PROT_READ | PROT_WRITE,
-			MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	if (tc->td == MAP_FAILED) {
-		free(cpu_idx);
-		ERR("Failed to allocate thread data\n");
-		return -ENOMEM;
-	}
-
-	share = tc->proc ? PTHREAD_PROCESS_SHARED :
-			PTHREAD_PROCESS_PRIVATE;
-	pthread_mutexattr_init(&tc->td->mutex_attr);
-	pthread_mutexattr_setpshared(&tc->td->mutex_attr, share);
-	pthread_condattr_init(&tc->td->cv_attr);
-	pthread_condattr_setpshared(&tc->td->cv_attr, share);
-	pthread_mutex_init(&tc->td->mutex, &tc->td->mutex_attr);
-	pthread_cond_init(&tc->td->cv, &tc->td->cv_attr);
+	rc = test_barrier_init(tc);
+	if (rc)
+		return rc;
 
 	for (i = 0; i < tc->nb_cpus; i++) {
 		tc->tcpu[i].cpu_num = cpu_idx[i].c;

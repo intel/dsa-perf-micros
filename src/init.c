@@ -503,23 +503,15 @@ test_free(struct tcfg *tcfg)
 		free(tcfg->mmio_mem[i].bfile);
 	}
 
-	if (tcfg->td) {
-		pthread_mutexattr_destroy(&tcfg->td->mutex_attr);
-		pthread_condattr_destroy(&tcfg->td->cv_attr);
-		pthread_mutex_destroy(&tcfg->td->mutex);
-		pthread_cond_destroy(&tcfg->td->cv);
-	}
-
 	if (tcfg->tcpu) {
 		for (i = 0; i < tcfg->nb_cpus; i++)
 			free(tcfg->tcpu[i].dname);
 	}
 
-	if (tcfg->td)
-		munmap(tcfg->td, sizeof(struct thread_data));
 	if (tcfg->tcpu)
 		munmap(tcfg->tcpu, tcfg->nb_cpus*sizeof(*tcfg->tcpu));
 
+	test_barrier_free(tcfg);
 	free(tcfg->numa_node);
 	free(tcfg->numa_mem);
 }

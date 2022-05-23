@@ -781,6 +781,41 @@ do_results(struct tcfg *tcfg)
 	calc_drain_latency(tcfg);
 }
 
+struct thread_data {
+	pthread_mutex_t mutex;
+	pthread_cond_t cv;
+	pthread_mutexattr_t mutex_attr;
+	pthread_condattr_t cv_attr;
+	uint32_t barrier_cnt;
+	bool err;
+};
+
+int
+test_barrier_init(struct tcfg *tcfg)
+{
+	struct thread_data *td;
+
+	td = mmap(NULL, sizeof(*td), PROT_READ | PROT_WRITE,
+			MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (td == MAP_FAILED) {
+		ERR("Failed to allocate thread data\n");
+		return -ENOMEM;
+	}
+
+	pthread_mutexattr_init(&td->mutex_attr);
+	pthread_mutexattr_setpshared(&td->mutex_attr,
+				tcfg->proc ? PTHREAD_PROCESS_SHARED :
+				PTHREAD_PROCESS_PRIVATE);
+	pthread_condattr_init(&td->cv_attr);
+	pthread_condattr_setpshared(&td->cv_attr, !!tcfg->proc);
+	pthread_mutex_init(&td->mutex, &td->mutex_attr);
+	pthread_cond_init(&td->cv, &td->cv_attr);
+
+	tcfg->td = td;
+
+	return 0;
+}
+
 int
 test_barrier(struct tcfg *tcfg, bool err)
 {
@@ -803,4 +838,20 @@ test_barrier(struct tcfg *tcfg, bool err)
 	pthread_mutex_unlock(&tcfg->td->mutex);
 
 	return tcfg->td->err;
+}
+
+void
+test_barrier_free(struct tcfg *tcfg)
+{
+	struct thread_data *td = tcfg->td;
+
+	if (!td)
+		return;
+
+	pthread_mutexattr_destroy(&td->mutex_attr);
+	pthread_condattr_destroy(&td->cv_attr);
+	pthread_mutex_destroy(&td->mutex);
+	pthread_cond_destroy(&td->cv);
+
+	munmap(td, align(sizeof(*td), 4096));
 }
