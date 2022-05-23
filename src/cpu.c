@@ -183,7 +183,7 @@ test_memcpy(struct tcfg_cpu *tcpu)
 				break;
 
 			case DSA_OPCODE_CFLUSH:
-				if (tcfg->desc_flags & IDXD_OP_FLAG_CC)
+				if (tcfg->ccmask & IDXD_OP_FLAG_CC)
 					clwb(dst, tcfg->blen);
 				else
 					cflush(dst, tcfg->blen);

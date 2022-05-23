@@ -196,79 +196,87 @@ struct mmio_mem {
  * Thread-specific parameters should go into struct tcfg_cpu.
  */
 struct tcfg {
-	uint64_t blen;		/* buffer size */
-	uint64_t blen_arr[NUM_ADDR_MAX];
-	uint64_t bstride;	/* buffer stride */
-	uint64_t bstride_arr[NUM_ADDR_MAX];
-	uint32_t nb_bufs;	/* buffer count */
-	int qd;			/* queue depth */
-	uint32_t nb_cpus;	/* cpu count for test */
-	uint32_t pg_size;	/* 0 - 4K, 1 - 2Mb, 2 - 1G */
-	uint32_t wq_type;	/* wq type */
-	uint32_t batch_sz;	/* batch size */
-	uint32_t iter;		/* iterations */
-	uint32_t warmup_iter;	/* number of iterations used to warm up system state
-				 * will not be included in measurements
-				 */
-	uint32_t op;		/* opcode */
-	uint64_t cycles;	/* avg of execution cycles across CPUs */
-	uint64_t retry;
-	uint64_t mwait_cycles;
+	uint64_t blen;				/* buffer size (-s) */
+	uint64_t bstride;			/* buffer stride (-t) */
+	uint32_t nb_bufs;			/* buffer count (-n) */
+	int qd;					/* queue depth (-q) */
+	uint32_t nb_cpus;			/* cpu count for test - parsed from -k/-K */
+	uint32_t pg_size;			/* 0 - 4K, 1 - 2Mb, 2 - 1G (-l) */
+	uint32_t wq_type;			/* wq type (-w) */
+	uint32_t batch_sz;			/* batch size (-b) */
+	uint32_t iter;				/* iterations (-i) */
+	uint32_t warmup_iter;			/* number of iterations used to warm up system state
+						 * will not be included in measurements (-W)
+						 */
+	uint32_t op;				/* opcode (-o) */
+	bool verify;				/* verify data after generating descriptors (-v)  */
+	bool dma;				/* use dma v/s memcpy (-m) */
+	bool var_mmio;				/* portal mmio address is varied (-c) */
+	uint8_t bl_idx;				/* selects one of the 4 block lengths (-e) */
+	uint16_t bl_len;			/* block length for DIF ops, derived from bl_idx */
+	int delta;				/* reciprocal of delta fraction (-D) */
+	uint32_t delta_rec_size;		/* derived from buffer size (-S) and -D options */
+	int tval_secs;				/* -T */
 
-	bool verify;		/* verify data after test  */
-	bool dma;		/* use dma */
-	bool var_mmio;		/* portal mmio address is varied */
-	uint8_t bl_idx;
-	uint16_t bl_len;	/* block length for DIF ops */
-	int delta;		/* reciprocal of delta fraction */
-	int tval_secs;
-	uint32_t delta_rec_size;
-	int numa_node_default[NUM_ADDR_MAX];
-	int (*numa_node)[NUM_ADDR_MAX];
-	int nb_numa_node_id;
-	int access_op[NUM_ADDR_MAX];
-	int place_op[NUM_ADDR_MAX];
-	bool loop;		/* use descriptor loop */
-	union {
+	int numa_node_default[NUM_ADDR_MAX];	/* default NUMA allocation (-1, -1) */
+	int (*numa_node)[NUM_ADDR_MAX];		/* NUMA allocation (-S) */
+	int nb_numa_node_id;			/* Count of -S params */
+
+	int place_op[NUM_ADDR_MAX];		/* -y */
+	int access_op[NUM_ADDR_MAX];		/* -z */
+	bool loop;				/* use descriptor loop (-j) */
+	uint32_t misc_flags;			/* -x */
+	uint32_t ccmask;			/* cache control mask (-f) */
+	uint32_t flags_cmask;			/* flags to clear in the descriptor (-F) */
+	uint32_t flags_smask;			/* flags to set in the descriptor (-F) */
+	uint32_t flags_nth_desc;		/* flags to set at every "flags_nth_desc"th descriptor in a batch (-Y) */
+	int proc;				/* uses processes not threads (-P) */
+	int driver;				/* user driver(uio/vfio_pci) (-u) */
+	int nb_user_eng;			/* number of engines to use with -u */
+	int drain_desc;				/* drain desc (-Y) */
+
+	uint64_t blen_arr[NUM_ADDR_MAX];
+	uint64_t bstride_arr[NUM_ADDR_MAX];
+
+	union {					/* fill/pattern value used for o4/o6 */
 		uint64_t fill;
 		uint64_t pat;
 	};
-	struct thread_data *td;
-	struct tcfg_cpu *tcpu;
-	uint32_t misc_flags;
-	uint16_t desc_flags;
-	uint32_t ccmask;	/* cache control mask */
-	uint32_t flags_cmask;	/* flags to clear in the descriptor */
-	uint32_t flags_smask;	/* flags to set in the descriptor */
-	uint32_t flags_nth_desc;/* flags to set at every "flags_nth_desc"th descriptor in a batch */
 
-	int nb_desc;
-	int driver;
+	uint32_t nb_desc;			/* num descriptors not including batch */
 
-	int vfio_fd;
-	int nb_user_eng;
+	uint64_t cycles;			/* avg of execution cycles across CPUs */
+	uint64_t retry;				/* completion polling retries */
+	uint64_t mwait_cycles;			/* cycles spent in mwait */
+	float cpu_util;				/* cpu utilization needed to prep/submit descriptors */
+	int ops_rate;				/* operation rate - descriptors/sec */
+	float latency;				/* latency for n descriptors */
+	float bw;				/* operation BW */
+	uint64_t retries_per_sec;		/* pollling retries the CPU can do per sec  */
+	uint64_t cycles_per_sec;		/* rdtsc cycles per sec */
+	uint64_t drain_lat;			/* calculated drain latency per descriptor */
+
+	struct thread_data *td;			/* barrier */
+	struct tcfg_cpu *tcpu;			/* per worker data */
+
+	struct numa_mem *numa_mem;		/* per memory node info */
+	int nb_numa_node;			/* number of memory node structs */
+
+	int vfio_fd;				/* VFIO filehandle (-u with vfio_pci) */
 
 	struct op_info *op_info;
-	uint64_t retries_per_sec;
-	uint64_t cycles_per_sec;
-	float cpu_util;
-	int ops_rate;
-	float latency;
-	float bw;
-	int proc;
 
-	struct numa_mem *numa_mem;
-	int nb_numa_node;
 
 	void * (*malloc)(size_t size, unsigned int align, int numa_node);
 
-	int drain_desc;
-	uint64_t drain_lat;
 
 	bool cpu_desc_work;
 
-	int mmio_idx[3];
-	struct mmio_mem mmio_mem[3];
+	int mmio_idx[3];			/* address index (0 - 2) into mmio_mem */
+	struct mmio_mem mmio_mem[3];		/* per mmio file info - mmio files maybe duplicated
+						 * in that case, mmio_idx points to a single mmio_mem
+						 * struct
+						 */
 
 	bool stop;
 };
