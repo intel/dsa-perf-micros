@@ -513,7 +513,7 @@ fixup_options(struct tcfg *tc, struct parse_info *pi)
 	switch (tc->op) {
 
 	case DSA_OPCODE_MEMFILL:
-		for (i = 0; i < tc->nb_numa_node_id; i++) {
+		for (i = 0; i < tc->nb_numa_node; i++) {
 			/* S1,-1 => S-1 */
 			if (pi->nb_node[i] == 2) {
 				pi->nb_node[i] = 1;
@@ -535,7 +535,7 @@ fixup_options(struct tcfg *tc, struct parse_info *pi)
 			pi->p[1] = pi->p[0];
 		}
 
-		for (i = 0; i < tc->nb_numa_node_id; i++) {
+		for (i = 0; i < tc->nb_numa_node; i++) {
 			/* -S-1 => -S-1,-1 */
 			if (pi->nb_node[i] == 1) {
 				pi->nb_node[i] = 2;
@@ -558,7 +558,7 @@ fixup_options(struct tcfg *tc, struct parse_info *pi)
 			pi->a[2] = pi->a[1];
 		}
 
-		for (i = 0; i < tc->nb_numa_node_id; i++) {
+		for (i = 0; i < tc->nb_numa_node; i++) {
 			/* -S-1,1 => -S-1,1,1 */
 			if (pi->nb_node[i] == 2) {
 				pi->nb_node[i] = 3;
@@ -583,7 +583,7 @@ fixup_options(struct tcfg *tc, struct parse_info *pi)
 			pi->a[1] = pi->a[0];
 		}
 
-		for (i = 0; i < tc->nb_numa_node_id; i++) {
+		for (i = 0; i < tc->nb_numa_node; i++) {
 			/* -S-1,1 => -S-1,-1,1 */
 			if (pi->nb_node[i] == 2) {
 				pi->nb_node[i] = 3;
@@ -756,7 +756,7 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 			break;
 
 		case 'S':
-			n = tc->nb_numa_node_id;
+			n = tc->nb_numa_node;
 			tc->numa_node = realloc(tc->numa_node,
 						sizeof(tc->numa_node[0]) * (n + 1));
 			if (tc->numa_node == NULL) {
@@ -775,7 +775,8 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 				free(pi->nb_node);
 				return -EINVAL;
 			}
-			tc->nb_numa_node_id = n + 1;
+			tc->nb_numa_node = n + 1;
+
 			break;
 
 		case 't':
@@ -1021,7 +1022,7 @@ validate_options(struct tcfg *tc, struct parse_info *pi)
 		return -EINVAL;
 	}
 
-	for (i = 0; i < tc->nb_numa_node_id; i++) {
+	for (i = 0; i < tc->nb_numa_node; i++) {
 		if (pi->nb_node[i] && pi->nb_node[i] < op_info[op].nb_buf) {
 			ERR("Expected %d numa node specifiers got %d for op %d\n",
 				op_info[op].nb_buf, pi->nb_node[i], op);

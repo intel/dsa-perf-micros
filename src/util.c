@@ -567,9 +567,11 @@ print_numa_info(struct tcfg *tcfg)
 	int i, j;
 
 	fprintf(stdout, "Memory affinity\n");
-	for (i = 0; i < tcfg->nb_numa_node_id; i++) {
-		fprintf(stdout, "CPUs in node %d:\t\t", tcfg->numa_mem[i].id);
-		for (j = 0; j < NUM_ADDR_MAX; j++)
+	for (i = 0; i < tcfg->nb_numa_node; i++) {
+		if (!tcfg->numa_nb_cpu[i])
+			continue;
+		fprintf(stdout, "CPUs in node %d:\t\t", i);
+		for (j = 0; j < tcfg->op_info->nb_buf; j++)
 			fprintf(stdout, "%d ", tcfg->numa_node[i][j]);
 		printf("\n");
 	}

@@ -155,7 +155,6 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	uint64_t max_cyc;
 
 	int numa_node;
-	int numa_alloc_id;
 
 	uint64_t drain_submitted;
 	uint64_t drain_total_cycles;
@@ -179,7 +178,6 @@ struct op_info {
 struct numa_mem {
 	void *base_addr;
 	uint64_t sz;
-	int id;
 };
 
 struct mmio_mem {
@@ -220,7 +218,6 @@ struct tcfg {
 
 	int numa_node_default[NUM_ADDR_MAX];	/* default NUMA allocation (-1, -1) */
 	int (*numa_node)[NUM_ADDR_MAX];		/* NUMA allocation (-S) */
-	int nb_numa_node_id;			/* Count of -S params */
 
 	int place_op[NUM_ADDR_MAX];		/* -y */
 	int access_op[NUM_ADDR_MAX];		/* -z */
@@ -260,7 +257,11 @@ struct tcfg {
 	struct tcfg_cpu *tcpu;			/* per worker data */
 
 	struct numa_mem *numa_mem;		/* per memory node info */
-	int nb_numa_node;			/* number of memory node structs */
+	int nb_numa_node;			/* size of each of the numa_xyz arrays
+						 * nb_numa_node is the index of the
+						 * highest numa node id on the system
+						 */
+	int *numa_nb_cpu;			/* numa_nb_cpu[i] is the cpu count in node i */
 
 	int vfio_fd;				/* VFIO filehandle (-u with vfio_pci) */
 

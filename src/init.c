@@ -9,6 +9,7 @@
 #include <sys/mman.h>
 #include <sys/errno.h>
 #include <sys/syscall.h>
+#include <numa.h>
 #include <fcntl.h>
 #include <sched.h>
 #include <signal.h>
@@ -61,13 +62,9 @@ file_sz(int fd)
 static struct numa_mem *
 numa_mem_ptr(struct tcfg *tcfg, int numa_node)
 {
-	int i;
-
-	for (i = 0; i < tcfg->nb_numa_node; i++)
-		if (numa_node == tcfg->numa_mem[i].id)
-			break;
-
-	return &tcfg->numa_mem[i];
+	return numa_node < tcfg->nb_numa_node ?
+			&tcfg->numa_mem[numa_node] :
+			NULL;
 }
 
 static uint64_t
@@ -92,10 +89,10 @@ static int
 buffer_id_to_node(struct tcfg_cpu *tcpu, int bid)
 {
 	struct tcfg *tcfg = tcpu->tcfg;
-	int numa_alloc_id = tcpu->numa_alloc_id;
+	int n = tcpu->numa_node;
 
-	return tcfg->numa_node[numa_alloc_id][bid] == -1 ?
-		tcpu->numa_node : tcfg->numa_node[numa_alloc_id][bid];
+	return tcfg->numa_node[n][bid] == -1 ?
+		n : tcfg->numa_node[n][bid];
 }
 
 static void*
@@ -107,9 +104,9 @@ alloc_numa_offset(struct tcfg *tcfg, uint64_t sz, int numa_node)
 static void*
 alloc_mmio_offset(struct tcfg *tcfg, uint64_t sz, int bid)
 {
-	int mmio_idx = tcfg->mmio_idx[bid];
+	int fd = tcfg->mmio_idx[bid];
 
-	return alloc_offset(sz, &tcfg->mmio_mem[mmio_idx].sz);
+	return alloc_offset(sz, &tcfg->mmio_mem[fd].sz);
 }
 
 static void
@@ -172,7 +169,7 @@ alloc_mmio_mem(struct tcfg *tcfg)
 	int fd;
 	int i;
 
-	for (i = 0; i < 3; i++) {
+	for (i = 0; i < NUM_ADDR_MAX; i++) {
 		void *addr;
 		char *fname;
 
@@ -267,11 +264,14 @@ alloc_numa_mem(struct tcfg *tcfg)
 		void *addr;
 		struct numa_mem *nm = &tcfg->numa_mem[i];
 
+		if (nm->sz == 0)
+			continue;
+
 		addr = NULL;
-		rc = alloc_node_mem(tcfg, nm->sz, nm->id, &addr);
+		rc = alloc_node_mem(tcfg, nm->sz, i, &addr);
 		if (rc)
 			return rc;
-		INFO("Node %d: %p size 0x%016lx\n", nm->id, addr, nm->sz);
+		INFO("Node %d: %p size 0x%016lx\n", i, addr, nm->sz);
 		nm->base_addr = addr;
 	}
 
@@ -506,10 +506,9 @@ test_free(struct tcfg *tcfg)
 	if (tcfg->tcpu) {
 		for (i = 0; i < tcfg->nb_cpus; i++)
 			free(tcfg->tcpu[i].dname);
-	}
 
-	if (tcfg->tcpu)
-		munmap(tcfg->tcpu, tcfg->nb_cpus*sizeof(*tcfg->tcpu));
+		munmap(tcfg->tcpu, align(tcfg->nb_cpus * sizeof(*tcfg->tcpu), 4096));
+	}
 
 	test_barrier_free(tcfg);
 	free(tcfg->numa_node);
@@ -618,82 +617,86 @@ calc_nb_desc(struct tcfg *tcfg)
 			!!(tcfg->nb_bufs % tcfg->batch_sz);
 }
 
-
-int
-test_init_global(struct tcfg *tcfg)
+static
+int init_numa_node(struct tcfg *tcfg, int nb_numa_node)
 {
-	int err;
+	int nb_cpu_node = 0;	/* cpu node count */
+	int (*numa_node)[NUM_ADDR_MAX];
+	int *numa_nb_cpu;
+	struct numa_mem *nm;
 	int i, j;
-	uint64_t node_mask, tmp_node_mask;
-	int nb_node;
 
-	err = system_init();
-	if (err)
-		return err;
+	numa_node = calloc(nb_numa_node, sizeof(numa_node[0]));
+	if (!numa_node)
+		return -ENOMEM;
 
-	node_mask = 0;
-	nb_node = 0;
+	numa_nb_cpu = calloc(nb_numa_node, sizeof(numa_nb_cpu[0]));
+	if (!numa_nb_cpu)
+		return -ENOMEM;
+
+	nm = calloc(nb_numa_node, sizeof(nm[0]));
+	if (!nm)
+		return -ENOMEM;
+
+	tcfg->numa_mem = nm;
+	tcfg->numa_nb_cpu = numa_nb_cpu;
+
 	for (i = 0; i < tcfg->nb_cpus; i++) {
 		int n;
 
 		cpu_pin(tcfg->tcpu[i].cpu_num);
 		n = node_id();
 		tcfg->tcpu[i].numa_node = n;
-		node_mask = node_mask | (1ULL << n);
+		if (numa_nb_cpu[n] == 0)
+			nb_cpu_node++;
+		numa_nb_cpu[n]++;
 	}
 
-	INFO("CPU NUMA node mask 0x%016lx\n", node_mask);
-	tmp_node_mask = node_mask;
-	nb_node = __builtin_popcount(node_mask);
-
-	if (tcfg->nb_numa_node_id == 0) {
-		tcfg->numa_node = calloc(nb_node, sizeof(tcfg->numa_node[0]));
-		if (!tcfg->numa_node)
-			return -ENOMEM;
-
-		for (i = 0; i < nb_node; i++)
-			memmove(&tcfg->numa_node[i], tcfg->numa_node_default,
+	if (tcfg->nb_numa_node == 0) {
+		for (i = 0; i < nb_numa_node; i++)
+			memmove(&numa_node[i], &tcfg->numa_node_default[i],
 				sizeof(tcfg->numa_node[0]));
-		tcfg->nb_numa_node_id = nb_node;
+		tcfg->nb_numa_node = nb_numa_node;
+		tcfg->numa_node = numa_node;
+		return 0;
 	}
 
-
-	if (tcfg->nb_numa_node_id != nb_node) {
+	if (tcfg->nb_numa_node && tcfg->nb_numa_node != nb_cpu_node) {
 		ERR("Numa specifiers (%d) does not match numa node count (%d)\n",
-			tcfg->nb_numa_node_id, nb_node);
+			tcfg->nb_numa_node, nb_cpu_node);
 		return -EINVAL;
 	}
 
-	for (i = 0; i < nb_node; i++) {
-		int n = __builtin_ffs(tmp_node_mask) - 1;
+	j = 0;
+	for (i = 0; i < nb_numa_node; i++) {
 
-		for (j = 0; j < tcfg->nb_cpus; j++) {
-			if (tcfg->tcpu[j].numa_node == n)
-				tcfg->tcpu[j].numa_alloc_id = i;
-		}
+		if (numa_nb_cpu[i] == 0)
+			continue;
 
-		tmp_node_mask = tmp_node_mask & (~(1ULL << n));
+		memmove(&numa_node[i], &tcfg->numa_node[j], sizeof(numa_node[0]));
+		j++;
 	}
 
-	for (j = 0; j < tcfg->nb_numa_node_id; j++) {
-		for (i = 0; i < ARRAY_SIZE(tcfg->numa_node[0]); i++)
-			if (tcfg->numa_node[j][i] != -1)
-				node_mask |= (1ULL << tcfg->numa_node[j][i]);
+	free(tcfg->numa_node);
 
-	}
+	tcfg->nb_numa_node = nb_numa_node;
+	tcfg->numa_node = numa_node;
 
-	nb_node = __builtin_popcount(node_mask);
-	tcfg->nb_numa_node = nb_node;
-	tcfg->numa_mem = calloc(nb_node, sizeof(tcfg->numa_mem[0]));
-	if (!tcfg->numa_mem)
-		return -ENOMEM;
+	return 0;
+}
 
-	for (i = 0; i < nb_node; i++) {
-		int n = __builtin_ffs(node_mask) - 1;
+int
+test_init_global(struct tcfg *tcfg)
+{
+	int err;
 
-		tcfg->numa_mem[i].id = n;
-		node_mask = node_mask & (~(1ULL << n));
-	}
+	err = system_init();
+	if (err)
+		return err;
+
+	err = init_numa_node(tcfg, numa_max_node() + 1);
+	if (err)
+		return err;
 
 	calibrate(&tcfg->cycles_per_sec);
 
