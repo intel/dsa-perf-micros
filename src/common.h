@@ -230,6 +230,7 @@ struct tcfg {
 	int driver;				/* user driver(uio/vfio_pci) (-u) */
 	int nb_user_eng;			/* number of engines to use with -u */
 	int drain_desc;				/* drain desc (-Y) */
+	bool shuffle_descs;			/* shuffle descriptors */
 
 	uint64_t blen_arr[NUM_ADDR_MAX];
 	uint64_t bstride_arr[NUM_ADDR_MAX];

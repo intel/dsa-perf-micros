@@ -536,6 +536,26 @@ prep_dsa_noop(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 }
 
 static void
+shuffle_descs(struct tcfg_cpu *tcpu)
+{
+	struct tcfg *tcfg = tcpu->tcfg;
+	struct dsa_hw_desc *pd = tcpu->desc;
+	int i;
+
+	if (!tcfg->shuffle_descs)
+		return;
+
+	for (i = tcfg->nb_bufs; i > 0; i--) {
+		struct dsa_hw_desc t;
+		int r = rand() % i;
+
+		t = pd[i - 1];
+		pd[i - 1] = pd[r];
+		pd[r] = t;
+	}
+}
+
+static void
 test_prep_batch_desc(struct tcfg_cpu *tcpu)
 {
 	struct tcfg *tcfg;
@@ -643,6 +663,9 @@ test_prep_desc(struct tcfg_cpu *tcpu)
 	}
 
 	pd = tcpu->desc;
+
+	shuffle_descs(tcpu);
+
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		char *c;
 

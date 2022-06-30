@@ -21,6 +21,7 @@ test_all_ops() {
 
 			$bin -o$o -n2 -b2 $*
 			$bin -o$o -n2 -b2 $* -j
+			$bin -o$o -n2 -b2 $* -j -a
 		done
 	done
 }

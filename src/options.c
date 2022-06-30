@@ -83,6 +83,8 @@ static
 void print_usage(void)
 {
 	printf(
+	"\t-a			; Shuffle descriptors, use to test random strides between addresses in\n"
+	"			  desc. addresses v/s constant strides.\n"
 	"\t-b <batch_size>      ; Use batch descriptors with batch size descriptors in a batch.\n"
 	"\t-B                   ; PCI device/resource list to mmap memory from\n"
         "                         e.g., m,<BDF/resource0+4096> => mem is src, BDF/resource0+4096 is dst\n"
@@ -630,10 +632,14 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 	n = 0;
 	nb_k = nb_K = 0;
 	while ((opt = getopt(argc, argv, "b:e:i:k:l:n:o:q:s:t:u::v:w:x:y:z:B:D:F:K:"
-			"L:M:S:T:W:chfjmCPY")) != -1) {
+			"L:M:S:T:W:achfjmCPY")) != -1) {
 		int nb_a, nb_p;
 
 		switch (opt) {
+
+		case 'a':
+			tc->shuffle_descs = true;
+			break;
 
 		case 'b':
 			tc->batch_sz = strtoul(optarg, NULL, 0);
