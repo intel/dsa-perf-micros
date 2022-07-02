@@ -610,13 +610,26 @@ static __always_inline int
 do_single_iter(struct tcfg_cpu *tcpu, int nb_desc)
 {
 	int k;	/* completed descriptor count */
-	int s;	/* last descriptor submitted */
+	int s;
 	struct dsa_completion_record *c;
 
-	s = k = 0;
+	k = 0;
+
+	/*
+	 * the prevous invocation submitted [0..n] where
+	 * n = min(nb_desc - 1, tcpu->qd - 1)
+	 *
+	 * if nb_desc <= qd:
+	 *	the next descriptor to submit after
+	 *	desc[0] completes is desc[0]
+	 * else
+	 *	submit desc[tcpu->qd]
+	 */
+	s = nb_desc <= tcpu->qd ? 0 : tcpu->qd;
 
 	while (k < nb_desc) {
 		struct poll_cnt poll_cnt = { 0 };
+		int prev_k;
 
 		if (poll_comp(tcpu, k, &poll_cnt, tcpu->tcfg->misc_flags)) {
 			c = comp_rec(tcpu, k);
@@ -631,6 +644,7 @@ do_single_iter(struct tcfg_cpu *tcpu, int nb_desc)
 		tcpu->curr_stat.retry += poll_cnt.retry;
 		tcpu->curr_stat.mwait_cycles += poll_cnt.mwait_cycles;
 
+		prev_k = k;
 		c = comp_rec(tcpu, k);
 		c->status = 0;
 		k++;
@@ -655,7 +669,9 @@ do_single_iter(struct tcfg_cpu *tcpu, int nb_desc)
 
 
 		__builtin_ia32_sfence();
-		s += submit_b2e(tcpu, s, k - 1);
+		submit_b2e(tcpu, s, (s + k - prev_k - 1) % nb_desc);
+		s += k - prev_k;
+		s %= nb_desc;
 	}
 
 	return 0;
@@ -668,7 +684,6 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 	int d;
 	struct tcfg *tcfg;
 	bool inf;
-	int ns;
 	int nb_desc;
 
 	tcfg = tcpu->tcfg;
@@ -679,14 +694,14 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 	reset_cmpltn(tcpu, 0, nb_desc - 1, nb_desc);
 	__builtin_ia32_sfence();
 
+	/* submit as many descs as there would be in the WQ when do_single_iter() returns */
+	submit_b2e(tcpu, 0, min(nb_desc - 1, tcpu->qd - 1));
+
 	do_cache_ops(tcpu);
 
 	test_barrier(tcfg, 0);
 
 	INFO_CPU(tcpu, "Running BW test\n");
-
-	ns = submit_b2e(tcpu, 0, nb_desc - 1);
-	tcpu->s = (tcpu->s + ns) % nb_desc;
 
 	inf = tcfg->iter == ~0U;
 
@@ -704,13 +719,12 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 	if (tcfg->iter)
 		tcpu->cycles = (tcpu->tend - tcpu->tstart)/tcfg->iter;
 
-	d = tcpu->s;
-
-	while (d < tcpu->s) {
+	d = 0;
+	while (d < tcpu->qd) {
 		while (comp_rec(tcpu, d)->status == 0)
 			;
-		d++;
 		comp_rec(tcpu, d)->status = 0;
+		d++;
 	}
 
 	INFO_CPU(tcpu, "BW test done\n");
@@ -754,7 +768,6 @@ do_desc_work(struct tcfg_cpu *tcpu)
 
 	nb_desc = tcfg->nb_desc;
 	tcpu->crdt = tcpu->qd;
-	tcpu->s = 0;
 
 	if (tcfg->pg_size == 0 && tcfg->proc) {
 		int i;

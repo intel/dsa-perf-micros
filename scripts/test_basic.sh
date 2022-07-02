@@ -25,6 +25,13 @@ test_all_ops() {
 	done
 }
 
+test_qd_loop() {
+	d=dsa0
+	$setup -d$d -w 1 -md
+
+	$bin -o3 -q16 -n32 -jcf
+}
+
 test_all_cfg() {
 	wq=(d s)
 	d=dsa0
@@ -45,5 +52,6 @@ test_cpu()
 }
 
 test_all_cfg $flags -k0
+test_qd_loop
 test_cpu
 echo "Unit test passed"

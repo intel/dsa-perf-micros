@@ -107,7 +107,6 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	void *wq;
 	int crdt;		/* wq credits */
 	int dwq;
-	int s;			/* num submissions */
 	int qd;
 
 	uint32_t cpu_num;	/* cpu number */
