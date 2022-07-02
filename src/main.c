@@ -632,6 +632,8 @@ do_single_iter(struct tcfg_cpu *tcpu, int nb_desc)
 		tcpu->curr_stat.mwait_cycles += poll_cnt.mwait_cycles;
 
 		c = comp_rec(tcpu, k);
+		c->status = 0;
+		k++;
 		while (k < nb_desc) {
 			uint8_t tstatus;
 
