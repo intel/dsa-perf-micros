@@ -577,6 +577,17 @@ print_numa_info(struct tcfg *tcfg)
 	}
 }
 
+static void
+print_offsets(struct tcfg *tcfg)
+{
+	int i;
+
+	fprintf(stdout, "Buffer Offsets \t\t");
+	for (i = 0; i < tcfg->op_info->nb_buf; i++)
+		fprintf(stdout, "%hd ", tcfg->buf_off[i]);
+	printf("\n");
+}
+
 void
 print_tcfg(struct tcfg *tcfg)
 {
@@ -635,6 +646,7 @@ print_tcfg(struct tcfg *tcfg)
 	}
 
 	print_numa_info(tcfg);
+	print_offsets(tcfg);
 }
 
 static void

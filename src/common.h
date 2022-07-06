@@ -220,6 +220,7 @@ struct tcfg {
 
 	int place_op[NUM_ADDR_MAX];		/* -y */
 	int access_op[NUM_ADDR_MAX];		/* -z */
+	uint16_t buf_off[NUM_ADDR_MAX];		/* -O */
 	bool loop;				/* use descriptor loop (-j) */
 	uint32_t misc_flags;			/* -x */
 	uint32_t ccmask;			/* cache control mask (-f) */

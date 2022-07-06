@@ -96,15 +96,19 @@ buffer_id_to_node(struct tcfg_cpu *tcpu, int bid)
 }
 
 static void*
-alloc_numa_offset(struct tcfg *tcfg, uint64_t sz, int numa_node)
+alloc_numa_offset(struct tcfg *tcfg, uint64_t sz, int numa_node, uint32_t off)
 {
+	numa_mem_ptr(tcfg, numa_node)->sz += off;
+
 	return alloc_offset(sz, &numa_mem_ptr(tcfg, numa_node)->sz);
 }
 
 static void*
-alloc_mmio_offset(struct tcfg *tcfg, uint64_t sz, int bid)
+alloc_mmio_offset(struct tcfg *tcfg, uint64_t sz, int bid, uint32_t off)
 {
 	int fd = tcfg->mmio_fd_idx[bid];
+
+	tcfg->mmio_mem[fd].sz += off;
 
 	return alloc_offset(sz, &tcfg->mmio_mem[fd].sz);
 }
@@ -122,17 +126,17 @@ alloc_buf_offsets(struct tcfg *tcfg)
 		INFO("CPU %d Node %d\n", tcpu->cpu_num, tcpu->numa_node);
 		if (tcfg->dma) {
 			tcpu->desc = alloc_numa_offset(tcfg,
-					tcfg->nb_bufs * sizeof(tcpu->desc[0]), node);
+					tcfg->nb_bufs * sizeof(tcpu->desc[0]), node, 0);
 			if (tcfg->batch_sz > 1)
 				tcpu->bdesc = alloc_numa_offset(tcfg,
-					tcfg->nb_desc * sizeof(tcpu->bdesc[0]), node);
+					tcfg->nb_desc * sizeof(tcpu->bdesc[0]), node, 0);
 
 			/* *2 for IAX completion desc size */
 			tcpu->comp = alloc_numa_offset(tcfg,
-					tcfg->nb_bufs * sizeof(tcpu->comp[0]) *  2, node);
+					tcfg->nb_bufs * sizeof(tcpu->comp[0]) *  2, node, 0);
 			if (tcfg->batch_sz > 1)
 				tcpu->bcomp = alloc_numa_offset(tcfg,
-					tcfg->nb_desc * sizeof(tcpu->bcomp[0]), node);
+					tcfg->nb_desc * sizeof(tcpu->bcomp[0]), node, 0);
 			INFO("comp %p bcomp %p desc %p bdesc %p\n",
 				tcpu->comp, tcpu->bcomp, tcpu->desc, tcpu->bdesc);
 		}
@@ -148,10 +152,10 @@ alloc_buf_offsets(struct tcfg *tcfg)
 			uint64_t sz = tcfg->bstride_arr[j] * tcfg->nb_bufs;
 
 			if (tcfg->mmio_mem[j].bfile)
-				tcpu->b[j] = alloc_mmio_offset(tcfg, sz, j);
+				tcpu->b[j] = alloc_mmio_offset(tcfg, sz, j, tcfg->buf_off[j]);
 			else {
 				int n = buffer_id_to_node(tcpu, j);
-				tcpu->b[j] = alloc_numa_offset(tcfg, sz, n);
+				tcpu->b[j] = alloc_numa_offset(tcfg, sz, n, tcfg->buf_off[j]);
 				INFO("Buf %d Node %d offset %p\n", j, n, tcpu->b[j]);
 			}
 		}
@@ -165,8 +169,8 @@ alloc_buf_offsets(struct tcfg *tcfg)
 			int node = tcpu->numa_node;
 			uint64_t misc_b2_sz = misc_b1_sz +  sizeof(tcpu->comp[0]) *  2;
 
-			tcpu->misc_b1 = alloc_numa_offset(tcfg, misc_b1_sz, node);
-			tcpu->misc_b2 = alloc_numa_offset(tcfg, misc_b2_sz, node);
+			tcpu->misc_b1 = alloc_numa_offset(tcfg, misc_b1_sz, node, 0);
+			tcpu->misc_b2 = alloc_numa_offset(tcfg, misc_b2_sz, node, 0);
 
 			INFO("misc_b1 %p misc_b2 %p\n", tcpu->misc_b1, tcpu->misc_b2);
 		}

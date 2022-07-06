@@ -104,6 +104,7 @@ void print_usage(void)
 	"\t-m                   ; Use CPU to implement opcodes.\n"
 	"\t-n <buffer count>    ; Buffer count\n"
 	"\t-o <opcode>          ; DSA opcode\n"
+	"\t-0 <offset list>     ; Buffer address offsets from start of 4K page in decimal (-Ob1_off,b2_off,b3_off)\n"
 	"\t-P                   ; Use processes instead of threads\n"
 	"\t-q <queue depth>     ; Queue depth for dedicated WQ, can be > WQ size (use with -j)\n"
 	"\t-s <size>            ; Transfer size in bytes, can use k,m,g to specify KiB/MiB/GiB (e.g., -b 200m)\n"
@@ -632,7 +633,7 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 	n = 0;
 	nb_k = nb_K = 0;
 	while ((opt = getopt(argc, argv, "b:e:i:k:l:n:o:q:s:t:u::v:w:x:y:z:B:D:F:K:"
-			"L:M:S:T:W:achfjmCPY")) != -1) {
+			"L:M:O:S:T:W:achfjmCPY")) != -1) {
 		int nb_a, nb_p;
 
 		switch (opt) {
@@ -746,6 +747,14 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 				ERR("Invalid op %lu\n", op);
 				return -EINVAL;
 			}
+			break;
+
+		case 'O':
+			sscanf(optarg, "%hd,%hd,%hd", &tc->buf_off[0], &tc->buf_off[1],
+				&tc->buf_off[2]);
+			for (i = 0; i < sizeof(tc->buf_off); i++)
+				tc->buf_off[i] %= 4 * 1024;
+
 			break;
 
 		case 'P':
@@ -978,10 +987,50 @@ parse_options(int argc, char **argv, struct tcfg *tc, struct parse_info *pi)
 }
 
 static int
+validate_offsets(struct tcfg *tc)
+{
+	int rc;
+	int i;
+
+	switch (tc->op) {
+		case DSA_OPCODE_DUALCAST:
+			rc = tc->buf_off[1] != tc->buf_off[2] ? -EINVAL : 0;
+			if (rc)
+				ERR("Unequal Offset1 (%hd) & Offset2 (%hd)\n", tc->buf_off[1],
+				tc->buf_off[2]);
+			break;
+
+		case DSA_OPCODE_CR_DELTA:
+			for (i = 0; i < 2; i++) {
+				rc = tc->buf_off[i] & 0x7 ? -EINVAL : 0;
+				if (rc) {
+					ERR("Non-8B alignment %d: (0x%hx)\n", i, tc->buf_off[i]);
+					break;
+				}
+			}
+			break;
+
+		case DSA_OPCODE_AP_DELTA:
+			rc = tc->buf_off[1] & 0x7 ? -EINVAL : 0;
+			if (rc)
+				ERR("Non-8B alignment %d: (0x%hx)\n", 1, tc->buf_off[1]);
+			break;
+
+		default:
+			rc = 0;
+			break;
+	}
+
+	return rc;
+}
+
+static int
 validate_options(struct tcfg *tc, struct parse_info *pi)
 {
 	int i;
 	int op = tc->op;
+	int rc;
+
 	/* DIF computation blocks */
 	static const uint16_t bl_tbl[] = { 512, 520, 4096, 4104 };
 
@@ -996,6 +1045,10 @@ validate_options(struct tcfg *tc, struct parse_info *pi)
 			tc->blen, MAX_TRANSFER_SIZE);
 		return -EINVAL;
 	}
+
+	rc = validate_offsets(tc);
+	if (rc)
+		return rc;
 
 	if (op == DSA_OPCODE_AP_DELTA && tc->delta_rec_size == 0) {
 		ERR("Delta should be > 0\n");
