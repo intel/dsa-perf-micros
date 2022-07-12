@@ -509,7 +509,7 @@ test_free(struct tcfg *tcfg)
 		munmap(tcfg->numa_mem[i].base_addr,
 			page_align_sz(tcfg, tcfg->numa_mem[i].sz));
 
-	for (i = 0; i < tcfg->op_info->nb_buf; i++) {
+	for (i = 0; tcfg->op_info && i < tcfg->op_info->nb_buf; i++) {
 		munmap(tcfg->mmio_mem[i].base_addr, align(tcfg->mmio_mem[i].sz, 4096));
 		free(tcfg->mmio_mem[i].bfile);
 	}
