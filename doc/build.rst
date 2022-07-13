@@ -27,7 +27,7 @@ Build Steps
 
 .. code-block:: console
 
- $ git clone https://github.com/IntelLabs/dsa_perf_micros/
+ $ git clone https://github.com/intel/dsa_perf_micros/
 
 2. Use the steps below to build the dsa_perf_micros application
 
