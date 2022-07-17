@@ -840,7 +840,7 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 			for (i = 0; i < nb_a; i++) {
 				a[i] = toupper(a[i]);
 
-				if (place_map[ARR_IDX(toupper(a[i]))] == 0) {
+				if (access_map[ARR_IDX(toupper(a[i]))] == 0) {
 					ERR("Unrecognized access %c\n", a[i]);
 					return -EINVAL;
 				}
