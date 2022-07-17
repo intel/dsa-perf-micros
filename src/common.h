@@ -79,7 +79,7 @@ struct wq_info {
 
 struct poll_cnt {
 	union {
-		int retry;
+		uint64_t retry;
 		int monitor;
 	};
 	int mwait;
