@@ -745,7 +745,11 @@ calc_bw(struct tcfg *tcfg)
 	float secs;
 
 	data_size = tcfg->nb_cpus * tcfg->nb_bufs;
-	data_size *= tcfg->op == DSA_OPCODE_AP_DELTA ? tcfg->delta_rec_size :
+	/*
+	 * AP delta (may) write 8 byte partials, in which case it will limit op BW,
+	 * hence we measure AP Delta write BW
+	 */
+	data_size *= tcfg->op == DSA_OPCODE_AP_DELTA ? (tcfg->delta_rec_size/10) * 8 :
 		     tcfg->op == DSA_OPCODE_NOOP ? 64 : tcfg->blen;
 
 	secs = (float)tcfg->cycles/tcfg->cycles_per_sec;
