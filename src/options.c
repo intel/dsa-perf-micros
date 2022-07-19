@@ -752,7 +752,7 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 		case 'O':
 			sscanf(optarg, "%hd,%hd,%hd", &tc->buf_off[0], &tc->buf_off[1],
 				&tc->buf_off[2]);
-			for (i = 0; i < sizeof(tc->buf_off); i++)
+			for (i = 0; i < ARRAY_SIZE(tc->buf_off); i++)
 				tc->buf_off[i] %= 4 * 1024;
 
 			break;
