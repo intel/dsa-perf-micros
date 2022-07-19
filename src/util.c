@@ -107,8 +107,6 @@ init_bv(struct tcfg_cpu *tcpu, char **b, uint8_t *v)
 		break;
 
 	case DSA_OPCODE_CR_DELTA:
-		b[0] = src1;
-		v[0] = TEST_CHAR;
 		for (i = 0; i < tcfg->nb_bufs; i++)
 			prep_delta_src2(tcpu->src2 + i * tcfg->bstride,
 					tcfg->delta/10, tcfg->blen);
