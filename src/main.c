@@ -917,7 +917,7 @@ test_run(struct tcfg *tcfg)
 	}
 
 	if (tcfg->iter == ~0U) {
-		uint64_t iter_bytes =  tcfg->nb_bufs * tcfg->blen;
+		uint64_t iter_bytes = data_size_per_iter(tcfg);
 
 		err = false;
 		while (!err) {

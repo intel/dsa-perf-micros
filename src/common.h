@@ -477,4 +477,31 @@ node_id(void)
 	return n;
 }
 
+static inline uint64_t
+data_size_per_iter(struct tcfg *tcfg)
+{
+	uint64_t sz;
+	struct delta_rec dc;
+
+	switch (tcfg->op) {
+	case DSA_OPCODE_NOOP:
+		sz = 64;
+		break;
+
+	case DSA_OPCODE_AP_DELTA:
+		/*
+		 * AP delta (may) write 8 byte partials, in which case it will limit op BW,
+		 * hence we measure AP Delta write BW
+		 */
+		sz = (tcfg->delta_rec_size/sizeof(dc)) * sizeof(dc.val);
+		break;
+
+	default:
+		sz = tcfg->blen;
+		break;
+	}
+
+	return sz * tcfg->nb_cpus * tcfg->nb_bufs;
+}
+
 #endif
