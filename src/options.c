@@ -498,12 +498,13 @@ do {\
 static uint32_t
 calc_delta_rec_size(struct tcfg *tcfg)
 {
-	uint32_t nb_cmp = 0;
+	uint32_t nb_cmp;
 
-	if (tcfg->delta) {
-		nb_cmp = tcfg->blen/8;
-		nb_cmp = (nb_cmp * tcfg->delta)/100;
-	}
+	nb_cmp = tcfg->blen/8;
+	nb_cmp = (nb_cmp * tcfg->delta)/100;
+
+	if (nb_cmp == 0)
+		nb_cmp = 1;
 
 	return nb_cmp * sizeof(struct delta_rec);
 }
@@ -1049,11 +1050,6 @@ validate_options(struct tcfg *tc, struct parse_info *pi)
 	rc = validate_offsets(tc);
 	if (rc)
 		return rc;
-
-	if (op == DSA_OPCODE_AP_DELTA && tc->delta_rec_size == 0) {
-		ERR("Delta should be > 0\n");
-		return -EINVAL;
-	}
 
 	if (op == DSA_OPCODE_CR_DELTA && tc->blen % 8 != 0) {
 		ERR("cr delta needs len to be 8 byte aligned\n");
