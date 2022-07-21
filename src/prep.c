@@ -285,7 +285,11 @@ prep_dsa_cr_delta(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 	init_buffers(tcpu);
 
 	dptr = tcpu->delta;
-	desc->max_delta_size = min(80, tcfg->delta_rec_size);
+	/*
+	 * as per spec max_delta_size must not be less than the maximum number
+	 * of deltas that can be generated from a single cache line (80 bytes)
+	 */
+	desc->max_delta_size = max(80, tcfg->delta_rec_size);
 
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
