@@ -675,6 +675,11 @@ test_prep_desc(struct tcfg_cpu *tcpu)
 
 		c = (char *)tcpu->comp + i * comp_rec_size(tcpu);
 		pd[i].completion_addr = rte_mem_virt2iova(c);
+
+		/* mmap(MAP_POPULATE) but generates a fault on write after fork */
+		if (tcfg->pg_size == 0 && tcfg->proc)
+			faultin_range((char *)(pd[i].completion_addr & ~0xfffUL),
+				4096, 4096, 1);
 		pd[i].flags |= tcfg->ccmask;
 		if (tcfg->flags_nth_desc > 0 && (i+1) % tcfg->flags_nth_desc == 0) {
 			pd[i].flags &= tcfg->flags_cmask;

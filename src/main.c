@@ -740,22 +740,6 @@ submit_test_desc_common(struct tcfg_cpu *tcpu)
 			submit_test_desc(tcpu);
 }
 
-static void
-faultin_range(char *buf, uint64_t blen, uint64_t bstride, uint32_t nb_bufs)
-{
-	uint32_t i;
-
-	for (i = 0; i < nb_bufs; i++) {
-		char *b;
-
-		for (b = buf; b < buf + blen; b = b + 4096) {
-			volatile char *v = (volatile char *)b;
-			*v;
-		}
-
-		buf += bstride;
-	}
-}
 
 static void
 do_desc_work(struct tcfg_cpu *tcpu)

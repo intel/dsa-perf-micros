@@ -504,4 +504,21 @@ data_size_per_iter(struct tcfg *tcfg)
 	return sz * tcfg->nb_cpus * tcfg->nb_bufs;
 }
 
+static inline void
+faultin_range(char *buf, uint64_t blen, uint64_t bstride, uint32_t nb_bufs)
+{
+	uint32_t i;
+
+	for (i = 0; i < nb_bufs; i++) {
+		char *b;
+
+		for (b = buf; b < buf + blen; b = b + 4096) {
+			volatile char *v = (volatile char *)b;
+			*v;
+		}
+
+		buf += bstride;
+	}
+}
+
 #endif
