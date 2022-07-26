@@ -912,6 +912,7 @@ test_run(struct tcfg *tcfg)
 			iter_count(tcfg, &is);
 
 			bw = (is.iter * iter_bytes)/(1E9 * tcfg->tval_secs);
+			bw = bw/tcfg->nb_cpus;
 
 			for (i = 0, err = false; i < tcfg->nb_cpus; i++) {
 				struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
