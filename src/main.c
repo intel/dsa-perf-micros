@@ -975,7 +975,6 @@ main(int argc, char **argv)
 		.verify = 1,
 		.flags_nth_desc = 1,
 		.flags_cmask = -1,
-		.flags_nth_desc = 1,
 		.flags_smask = 0,
 		.tval_secs = 4,
 		.numa_node_default = { -1, -1, -1 },
