@@ -13,8 +13,10 @@
 
 #define MAX_PATH_LENGTH 1024
 #define DSA_BATCH_OPCODES 0x278
-#define DIF_INVERT_CRC_SEED         (1 << 2)
-#define DIF_INVERT_CRC_RESULT       (1 << 3)
+#define DIF_INVERT_CRC_SEED		(1 << 2)
+#define DIF_INVERT_CRC_RESULT		(1 << 3)
+#define CRC_BYP_CRC_INV_REF		(1 << 17)
+#define CRC_BYP_DATA_REF		(1 << 18)
 
 // DIF index's.
 #define DIF_BLK_GRD_1  0
