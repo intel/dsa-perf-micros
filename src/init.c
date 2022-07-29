@@ -461,14 +461,31 @@ test_init_dmap(struct tcfg_cpu *tcpu)
 	return err;
 }
 
+static int
+test_init_crc_per_cpu(struct tcfg_cpu *tcpu)
+{
+	if (tcpu->tcfg->op == DSA_OPCODE_CRCGEN ||
+		tcpu->tcfg->op == DSA_OPCODE_COPY_CRC) {
+		tcpu->crc = malloc(tcpu->tcfg->nb_bufs * sizeof(tcpu->crc[0]));
+		if (!tcpu->crc)
+			return -ENOMEM;
+	}
+	return 0;
+}
+
+static void
+test_free_crc_per_cpu(struct tcfg_cpu *tcpu)
+{
+	free(tcpu->crc);
+	tcpu->crc = NULL;
+}
+
 void
 test_init_percpu(struct tcfg_cpu *tcpu)
 {
-	tcpu->crc = malloc(tcpu->tcfg->nb_bufs * sizeof(tcpu->crc[0]));
-	if (!tcpu->crc) {
-		tcpu->err = -ENOMEM;
+	tcpu->err = test_init_crc_per_cpu(tcpu);
+	if (tcpu->err)
 		return;
-	}
 
 	tcpu->err = test_init_wq(tcpu);
 	if (tcpu->err)
@@ -519,8 +536,10 @@ test_free(struct tcfg *tcfg)
 	}
 
 	if (tcfg->tcpu) {
-		for (i = 0; i < tcfg->nb_cpus; i++)
+		for (i = 0; i < tcfg->nb_cpus; i++) {
 			free(tcfg->tcpu[i].dname);
+			test_free_crc_per_cpu(&tcfg->tcpu[i]);
+		}
 
 		munmap(tcfg->tcpu, align(tcfg->nb_cpus * sizeof(*tcfg->tcpu), 4096));
 	}
