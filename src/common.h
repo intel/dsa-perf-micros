@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <x86intrin.h>
 #include <linux/idxd.h>
+#include <linux/types.h>
 
 #include "log.h"
 
@@ -99,6 +100,15 @@ struct iter_stat {
 };
 
 /*
+ * T10 Protection Information tuple.
+ */
+struct t10_pi_tuple {
+	__be16 guard_tag;	/* Checksum */
+	__be16 app_tag;		/* Opaque storage */
+	__be32 ref_tag;		/* Target LBA or indirect LBA */
+};
+
+/*
  • Structure containing test parameters unique to each thread of execution.
  * Parameters common to all threads should be placed in struct tcfg
  */
@@ -160,6 +170,8 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	uint64_t nb_drain_completed;
 
 	uint32_t *crc;
+
+	struct t10_pi_tuple *dif_tag;
 };
 
 struct op_info {

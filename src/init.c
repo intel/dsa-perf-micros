@@ -480,10 +480,36 @@ test_free_crc_per_cpu(struct tcfg_cpu *tcpu)
 	tcpu->crc = NULL;
 }
 
+static int
+test_init_dif_per_cpu(struct tcfg_cpu *tcpu)
+{
+	int nb_blocks;
+
+	if (tcpu->tcfg->op == DSA_OPCODE_DIF_INS ||
+		tcpu->tcfg->op == DSA_OPCODE_DIF_UPDT) {
+		nb_blocks = tcpu->tcfg->blen/tcpu->tcfg->bl_len;
+		tcpu->dif_tag = malloc(nb_blocks * sizeof(tcpu->dif_tag[0]));
+		if (!tcpu->dif_tag)
+			return -ENOMEM;
+	}
+	return 0;
+}
+
+static void
+test_free_dif_per_cpu(struct tcfg_cpu *tcpu)
+{
+	free(tcpu->dif_tag);
+	tcpu->dif_tag = NULL;
+}
+
 void
 test_init_percpu(struct tcfg_cpu *tcpu)
 {
 	tcpu->err = test_init_crc_per_cpu(tcpu);
+	if (tcpu->err)
+		return;
+
+	tcpu->err = test_init_dif_per_cpu(tcpu);
 	if (tcpu->err)
 		return;
 
@@ -539,8 +565,8 @@ test_free(struct tcfg *tcfg)
 		for (i = 0; i < tcfg->nb_cpus; i++) {
 			free(tcfg->tcpu[i].dname);
 			test_free_crc_per_cpu(&tcfg->tcpu[i]);
+			test_free_dif_per_cpu(&tcfg->tcpu[i]);
 		}
-
 		munmap(tcfg->tcpu, align(tcfg->nb_cpus * sizeof(*tcfg->tcpu), 4096));
 	}
 

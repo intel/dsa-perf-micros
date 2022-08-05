@@ -314,6 +314,17 @@ verify_memmove(struct tcfg_cpu *tcpu, char *src, char *dst, int n)
 }
 
 static int
+verify_crc(struct tcfg_cpu *tcpu, char *dst, int block_idx)
+{
+	struct t10_pi_tuple *actual, *expected;
+
+	actual = (struct t10_pi_tuple *)(dst + tcpu->tcfg->bl_len);
+	expected = tcpu->dif_tag + block_idx;
+
+	return (actual->guard_tag != expected->guard_tag);
+}
+
+static int
 verify_dif(struct tcfg_cpu *tcpu, char *dst, char *src, int n)
 {
 	struct tcfg *tcfg;
@@ -337,6 +348,13 @@ verify_dif(struct tcfg_cpu *tcpu, char *dst, char *src, int n)
 		for (j = 0; j < nb_blocks; j++) {
 			if (memcmp(bsrc, bdst, tcfg->bl_len)) {
 				ERR("memcmp failed\n");
+				return 1;
+			}
+
+			if ((tcfg->op == DSA_OPCODE_DIF_INS ||
+				tcfg->op == DSA_OPCODE_DIF_UPDT)
+				 && verify_crc(tcpu, bdst, j)) {
+				ERR("crc comparision failed\n");
 				return 1;
 			}
 

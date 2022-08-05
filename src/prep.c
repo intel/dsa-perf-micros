@@ -7,20 +7,10 @@
 #include <unistd.h>
 #include <sys/errno.h>
 #include <linux/idxd.h>
-#include <linux/types.h>
 #include "common.h"
 #include "dsa.h"
 #include "device.h"
 #include "prep.h"
-
-/*
- * T10 Protection Information tuple.
- */
-struct t10_pi_tuple {
-	__be16 guard_tag;	/* Checksum */
-	__be16 app_tag;		/* Opaque storage */
-	__be32 ref_tag;		/* Target LBA or indirect LBA */
-};
 
 static const uint16_t bl_tbl[] = { 512, 520, 4096, 4104 };
 
@@ -369,6 +359,30 @@ prepare_dif_buf(struct tcfg *tcfg, char *b, int n, int dif_flags,
 }
 
 static void
+init_dif_expected(struct tcfg *tcfg, char *src, struct t10_pi_tuple *dif_data, int dif_flags,
+		uint32_t ref_tag, uint16_t app_tag)
+{
+	int j;
+	int nb_block;
+
+	nb_block = tcfg->blen/tcfg->bl_len;
+
+	for (j = 0; j < nb_block; j++) {
+		dif_data->guard_tag = dsa_calculate_crc_t10dif((unsigned char *)src,
+						tcfg->bl_len,
+						(uint8_t)dif_flags);
+		dif_data->guard_tag = htobe16(dif_data->guard_tag);
+		dif_data->app_tag = htobe16(app_tag);
+		dif_data->ref_tag = htobe32(ref_tag);
+
+		src += tcfg->bl_len;
+		if (tcfg->op == DSA_OPCODE_DIF_UPDT)
+			src += sizeof(struct t10_pi_tuple);
+		dif_data++;
+	}
+}
+
+static void
 dsa_prep_dif_flags(int op, int blk_idx, struct dsa_hw_desc *hw,
 		uint16_t app_tag, uint32_t ref_tag)
 {
@@ -449,6 +463,11 @@ prep_dsa_dif(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 		descs[i].xfer_size =
 			tcfg->op == DSA_OPCODE_DIF_INS ? tcfg->blen :
 							dif_xfer_size(tcfg);
+
+		if (tcfg->op == DSA_OPCODE_DIF_INS || tcfg->op == DSA_OPCODE_DIF_UPDT)
+			init_dif_expected(tcfg, src, tcpu->dif_tag,
+						dif_flags, ref_tag, app_tag);
+
 		init_dif_addr(tcpu, i, 1);
 		src += off_src;
 	}
