@@ -169,9 +169,11 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	uint64_t drain_total_cycles;
 	uint64_t nb_drain_completed;
 
-	uint32_t *crc;
-
-	struct t10_pi_tuple *dif_tag;
+	union {
+		void *op_priv;
+		uint32_t *crc;
+		struct t10_pi_tuple *dif_tag;
+	};
 };
 
 struct op_info {

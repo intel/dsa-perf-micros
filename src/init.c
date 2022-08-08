@@ -461,55 +461,50 @@ test_init_dmap(struct tcfg_cpu *tcpu)
 	return err;
 }
 
-static int
-test_init_crc_per_cpu(struct tcfg_cpu *tcpu)
+static size_t
+op_priv_size(struct tcfg *tcfg)
 {
-	if (tcpu->tcfg->op == DSA_OPCODE_CRCGEN ||
-		tcpu->tcfg->op == DSA_OPCODE_COPY_CRC) {
-		tcpu->crc = malloc(tcpu->tcfg->nb_bufs * sizeof(tcpu->crc[0]));
-		if (!tcpu->crc)
-			return -ENOMEM;
+	struct tcfg_cpu tcpu;
+	uint32_t nb_blocks;
+
+	switch (tcfg->op) {
+
+	case DSA_OPCODE_CRCGEN:
+	case DSA_OPCODE_COPY_CRC:
+		return tcfg->nb_bufs * sizeof(tcpu.crc[0]);
+
+	case DSA_OPCODE_DIF_INS:
+	case DSA_OPCODE_DIF_UPDT:
+		nb_blocks = tcfg->blen/tcfg->bl_len;
+		return nb_blocks * sizeof(tcpu.dif_tag[0]);
+
+	default:
+		return 0;
 	}
-	return 0;
+}
+
+static int
+test_init_op_priv(struct tcfg_cpu *tcpu)
+{
+	size_t sz = op_priv_size(tcpu->tcfg);
+
+	if (!sz)
+		return 0;
+
+	return (tcpu->op_priv = calloc(1, sz)) != NULL ? 0 : -ENOMEM;
 }
 
 static void
-test_free_crc_per_cpu(struct tcfg_cpu *tcpu)
+test_free_op_priv(struct tcfg_cpu *tcpu)
 {
-	free(tcpu->crc);
-	tcpu->crc = NULL;
-}
-
-static int
-test_init_dif_per_cpu(struct tcfg_cpu *tcpu)
-{
-	int nb_blocks;
-
-	if (tcpu->tcfg->op == DSA_OPCODE_DIF_INS ||
-		tcpu->tcfg->op == DSA_OPCODE_DIF_UPDT) {
-		nb_blocks = tcpu->tcfg->blen/tcpu->tcfg->bl_len;
-		tcpu->dif_tag = malloc(nb_blocks * sizeof(tcpu->dif_tag[0]));
-		if (!tcpu->dif_tag)
-			return -ENOMEM;
-	}
-	return 0;
-}
-
-static void
-test_free_dif_per_cpu(struct tcfg_cpu *tcpu)
-{
-	free(tcpu->dif_tag);
-	tcpu->dif_tag = NULL;
+	free(tcpu->op_priv);
+	tcpu->op_priv = NULL;
 }
 
 void
 test_init_percpu(struct tcfg_cpu *tcpu)
 {
-	tcpu->err = test_init_crc_per_cpu(tcpu);
-	if (tcpu->err)
-		return;
-
-	tcpu->err = test_init_dif_per_cpu(tcpu);
+	tcpu->err = test_init_op_priv(tcpu);
 	if (tcpu->err)
 		return;
 
@@ -564,8 +559,7 @@ test_free(struct tcfg *tcfg)
 	if (tcfg->tcpu) {
 		for (i = 0; i < tcfg->nb_cpus; i++) {
 			free(tcfg->tcpu[i].dname);
-			test_free_crc_per_cpu(&tcfg->tcpu[i]);
-			test_free_dif_per_cpu(&tcfg->tcpu[i]);
+			test_free_op_priv(&tcfg->tcpu[i]);
 		}
 		munmap(tcfg->tcpu, align(tcfg->nb_cpus * sizeof(*tcfg->tcpu), 4096));
 	}
