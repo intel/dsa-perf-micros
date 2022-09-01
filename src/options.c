@@ -83,18 +83,18 @@ static
 void print_usage(void)
 {
 	printf(
-	"\t-a			; Shuffle descriptors, use to test random strides between addresses in\n"
-	"			  desc. addresses v/s constant strides.\n"
+	"\t-a                   ; Shuffle descriptors, use to test random strides between addresses in\n"
+	"\t                       desc. addresses v/s constant strides.\n"
 	"\t-b <batch_size>      ; Use batch descriptors with batch size descriptors in a batch.\n"
-	"\t-B                   ; PCI device/resource list to mmap memory from\n"
-        "                         e.g., m,<BDF/resource0+4096> => mem is src, BDF/resource0+4096 is dst\n"
+	"\t-B                   ; PCI device/resource+offset_into_mmio list to mmap memory from\n"
+	"\t                       e.g., m,Bus:Device.Function/resource0+4096 => memory is src, B:D.F/resource0+4096 is dst\n"
 	"\t-c                   ; Increment portal address between descriptors.\n"
 	"\t-C                   ; Include descriptor modification cycles in CPU utilization measurement\n"
 	"\t-D <delta %%>         ; Delta (specified as a percentage) between buffers for delta create and delta apply\n"
 	"\t-e <block length>    ; Block len [0-3] for dif operations\n"
 	"\t-f                   ; Set the cache control flag in descriptors\n"
 	"\t-F <flag_bits_to_clear:flag_bits_to_set:every_nth_desc>\n"
-	"\t(e.g. -F 0xFFFFF7:0x8:4 to clear Addr2_TC flag and set RCR=1 on every 4th descriptor)\n"
+	"\t                       e.g., -F 0xFFFFF7:0x8:4 to clear Addr2_TC flag and set RCR=1 on every 4th descriptor\n"
 	"\t-h                   ; Print this message\n"
 	"\t-i <iterations>      ; The number of iterations to run the test for\n"
 	"\t-j                   ; Continuously stream descriptors to the device (use for bandwidth measurement)\n"

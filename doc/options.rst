@@ -21,6 +21,10 @@ Command Line Options
 
    Use batch descriptors with "batch size" descriptors in a batch.
 
+.. option:: -B PCI device/resource+offset_into_mmio to map memory from
+
+   (e.g., m,Bus:Device.Function/resource0+4096 => memory is src, B:D.F/resource0+4096 is dst)
+
 .. option:: -c
 
    Increment portal address between descriptors.
