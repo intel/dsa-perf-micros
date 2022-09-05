@@ -392,8 +392,18 @@ dsa_prep_dif_flags(int op, int blk_idx, struct dsa_hw_desc *hw,
 	case DSA_OPCODE_DIF_CHECK:
 		hw->chk_app_tag_seed = app_tag;
 		hw->chk_ref_tag_seed = ref_tag;
-		hw->chk_app_tag_mask = 0xffff;
-		hw->src_dif_flags = (1 << 7) | (1 << 6) | (1 << 5);
+		hw->chk_app_tag_mask = 0x0;
+		/*
+		 * b7: source DIF Reference Tag = fixed
+		 * b6: enable ref. tag field checking
+		 * b5: Enable Guard field checking
+		 * b4: Source Application Tag Type = fixed
+		 * b3: Disable F Detect for Application Tag and Reference Tag fields
+		 * b2: Disable F Detect for the Application Tag field
+		 * b1: Disable All F Detect
+		 * b0: Disable All F Detect Error
+		 */
+		hw->src_dif_flags = 1 << 7;
 		hw->dif_chk_flags = blk_idx;
 		hw->dif_chk_res2[0] = 0;
 		hw->dif_chk_res2[1] = 0;
