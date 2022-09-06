@@ -329,7 +329,7 @@ dif_xfer_size(struct tcfg *tcfg)
 
 static void
 prepare_dif_buf(struct tcfg *tcfg, char *b, int n, int dif_flags,
-		uint32_t ref_tag, uint16_t app_tag)
+		uint8_t src_dif_flags, uint32_t ref_tag, uint16_t app_tag)
 {
 	int i, j;
 	struct t10_pi_tuple *t10;
@@ -350,7 +350,7 @@ prepare_dif_buf(struct tcfg *tcfg, char *b, int n, int dif_flags,
 			t10->guard_tag = htobe16(t10->guard_tag);
 			t10->app_tag = htobe16(app_tag);
 			t10->ref_tag = htobe32(ref_tag);
-
+			ref_tag += !(src_dif_flags & 0x80);
 			block += tcfg->bl_len + 8;
 		}
 
@@ -394,7 +394,7 @@ dsa_prep_dif_flags(int op, int blk_idx, int dif_flags, struct dsa_hw_desc *hw,
 		hw->chk_ref_tag_seed = ref_tag;
 		hw->chk_app_tag_mask = 0x0;
 		/*
-		 * b7: source DIF Reference Tag = fixed
+		 * b7: source DIF Reference Tag = incrementing
 		 * b6: enable ref. tag field checking
 		 * b5: Enable Guard field checking
 		 * b4: Source Application Tag Type = fixed
@@ -403,7 +403,7 @@ dsa_prep_dif_flags(int op, int blk_idx, int dif_flags, struct dsa_hw_desc *hw,
 		 * b1: Disable All F Detect
 		 * b0: Disable All F Detect Error
 		 */
-		hw->src_dif_flags = 1 << 7;
+		hw->src_dif_flags = 0;
 		hw->dif_chk_flags = dif_flags | blk_idx;
 		hw->dif_chk_res2[0] = 0;
 		hw->dif_chk_res2[1] = 0;
@@ -413,26 +413,21 @@ dsa_prep_dif_flags(int op, int blk_idx, int dif_flags, struct dsa_hw_desc *hw,
 		hw->ins_app_tag_seed = app_tag;
 		hw->ins_ref_tag_seed = ref_tag;
 		hw->ins_app_tag_mask = 0xffff;
-		/* 1 << 7 => fixed ref tag, 0 << 4 => fixed app tag */
-		hw->dest_dif_flag = 1 << 7;
+		hw->dest_dif_flag = 0;
 		hw->dif_ins_flags = dif_flags | blk_idx;
 		hw->dif_ins_res2[0] = 0;
 		hw->dif_ins_res2[1] = 0;
 		break;
 
 	case DSA_OPCODE_DIF_UPDT:
-		/*
-		 * src ref tag type is fixed
-		 */
-		hw->src_upd_flags = 1 << 7;
+		hw->src_upd_flags = 0;
 
 		/*
-		 * dest ref tag(7) = fixed,
 		 * ref tag passthru(6) = 1, guard field(5) = 1
 		 * app tag passthru(3) = 1
 		 * respective fields are copied from src to dest
 		 */
-		hw->upd_dest_flags = (1 << 7) | (1 << 6) | (1 << 5) | (1 << 3);
+		hw->upd_dest_flags = (1 << 6) | (1 << 5) | (1 << 3);
 		hw->dif_upd_flags = dif_flags | blk_idx;
 		hw->dif_upd_res[0] = 0;
 		hw->dif_upd_res[1] = 0;
@@ -469,7 +464,7 @@ prep_dsa_dif(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
 		if (tcfg->op != DSA_OPCODE_DIF_INS)
-			prepare_dif_buf(tcfg, src, 1, dif_flags, ref_tag, app_tag);
+			prepare_dif_buf(tcfg, src, 1, desc->src_dif_flags, dif_flags, ref_tag, app_tag);
 		descs[i].xfer_size =
 			tcfg->op == DSA_OPCODE_DIF_INS ? tcfg->blen :
 							dif_xfer_size(tcfg);
