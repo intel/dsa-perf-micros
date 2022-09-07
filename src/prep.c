@@ -383,7 +383,7 @@ init_dif_expected(struct tcfg *tcfg, char *src, struct t10_pi_tuple *dif_data, i
 }
 
 static void
-dsa_prep_dif_flags(int op, int blk_idx, struct dsa_hw_desc *hw,
+dsa_prep_dif_flags(int op, int blk_idx, int dif_flags, struct dsa_hw_desc *hw,
 		uint16_t app_tag, uint32_t ref_tag)
 {
 	switch (op) {
@@ -404,7 +404,7 @@ dsa_prep_dif_flags(int op, int blk_idx, struct dsa_hw_desc *hw,
 		 * b0: Disable All F Detect Error
 		 */
 		hw->src_dif_flags = 1 << 7;
-		hw->dif_chk_flags = blk_idx;
+		hw->dif_chk_flags = dif_flags | blk_idx;
 		hw->dif_chk_res2[0] = 0;
 		hw->dif_chk_res2[1] = 0;
 		break;
@@ -415,7 +415,7 @@ dsa_prep_dif_flags(int op, int blk_idx, struct dsa_hw_desc *hw,
 		hw->ins_app_tag_mask = 0xffff;
 		/* 1 << 7 => fixed ref tag, 0 << 4 => fixed app tag */
 		hw->dest_dif_flag = 1 << 7;
-		hw->dif_ins_flags = blk_idx;
+		hw->dif_ins_flags = dif_flags | blk_idx;
 		hw->dif_ins_res2[0] = 0;
 		hw->dif_ins_res2[1] = 0;
 		break;
@@ -433,7 +433,7 @@ dsa_prep_dif_flags(int op, int blk_idx, struct dsa_hw_desc *hw,
 		 * respective fields are copied from src to dest
 		 */
 		hw->upd_dest_flags = (1 << 7) | (1 << 6) | (1 << 5) | (1 << 3);
-		hw->dif_upd_flags = blk_idx;
+		hw->dif_upd_flags = dif_flags | blk_idx;
 		hw->dif_upd_res[0] = 0;
 		hw->dif_upd_res[1] = 0;
 		hw->dif_upd_res[2] = 0;
@@ -464,7 +464,7 @@ prep_dsa_dif(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 
 	off_src = tcfg->bstride_arr[0];
 	src = tcpu->src;
-	dsa_prep_dif_flags(tcfg->op, tcfg->bl_idx, desc, app_tag, ref_tag);
+	dsa_prep_dif_flags(tcfg->op, tcfg->bl_idx, dif_flags, desc, app_tag, ref_tag);
 
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
