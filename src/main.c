@@ -689,7 +689,7 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 	inf = tcfg->iter == ~0U;
 
 	if (do_single_iter(tcpu, nb_desc)) {
-		ERR("Failed initial descriptor submission \n");
+		ERR("Failed initial descriptor submission\n");
 		goto error2;
 	}
 

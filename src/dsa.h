@@ -8,9 +8,6 @@
 #include <stdint.h>
 #include <linux/idxd.h>
 
-
-#include "crc16_t10_lookup.h"
-
 #define MAX_PATH_LENGTH 1024
 #define DSA_BATCH_OPCODES 0x278
 #define DIF_INVERT_CRC_SEED		(1 << 2)
