@@ -338,12 +338,21 @@ print_batch_comp_err(struct tcfg_cpu *tcpu, int d)
 {
 	int i;
 	struct dsa_hw_desc *desc = tcpu->bdesc + d;
-	struct dsa_completion_record *comp = tcpu->comp +
-			d * tcpu->tcfg->batch_sz * comp_rec_size(tcpu);
+	struct tcfg *tcfg = tcpu->tcfg;
+	size_t comp_off = d * tcfg->batch_sz * comp_rec_size(tcpu);
+	struct dsa_completion_record *comp;
 
-	for (i = 0; i < desc->desc_count; i++)
-		print_status(comp->status & 0x3f,
-			comp + i * comp_rec_size(tcpu));
+	comp = tcpu->comp;
+	PTR_ADD(comp, comp_off);
+
+	for (i = 0; i < desc->desc_count; i++) {
+		if (comp->status != DSA_COMP_SUCCESS) {
+			ERR("batch index %d:\n", i);
+			print_status(comp->status & 0x3f, comp);
+			dump_desc(&tcpu->desc[d * tcfg->batch_sz + i]);
+		}
+		PTR_ADD(comp, comp_rec_size(tcpu));
+	}
 }
 
 static void
@@ -412,19 +421,16 @@ check_comp(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 	d = desc - desc_ptr(tcpu);
 
 	if (poll_comp(tcpu, d, NULL, flags)) {
-		c = comp_rec(tcpu, d);
-		if (c->status) {
-			ERR("desc[%d] error\n", d);
-			print_comp_err(tcpu, d);
-		} else
-			ERR("desc[%d] timed out\n", d);
-		dump_desc(desc);
-		if (desc->opcode == DSA_OPCODE_BATCH) {
-			int i;
 
-			for (i = 0; i < desc->desc_count; i++)
-				dump_desc(&tcpu->desc[d * tcfg->batch_sz + i]);
-		}
+		c = comp_rec(tcpu, d);
+		if (c->status)
+			ERR("desc[%d] error\n", d);
+		else
+			ERR("desc[%d] timed out\n", d);
+
+		dump_desc(desc);
+		if (c->status)
+			print_comp_err(tcpu, d);
 		tcpu->err = 1;
 		return 1;
 	}
