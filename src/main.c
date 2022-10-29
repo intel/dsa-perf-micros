@@ -315,7 +315,7 @@ print_status(uint8_t sc, struct dsa_completion_record *comp)
 	switch (sc) {
 
 	case DSA_COMP_PAGE_FAULT_NOBOF:
-		ERR("fault addr 0x%lx completed %d\n",
+		ERR("fault addr 0x%lx bytes completed %d\n",
 			comp->fault_addr, comp->bytes_completed);
 		break;
 
@@ -413,9 +413,8 @@ check_comp(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 
 	if (poll_comp(tcpu, d, NULL, flags)) {
 		c = comp_rec(tcpu, d);
-		ERR("d completed %d\n", d);
 		if (c->status) {
-			ERR("comp (%x)\n", c->status);
+			ERR("desc[%d] error\n", d);
 			print_comp_err(tcpu, d);
 		} else
 			ERR("desc[%d] timed out\n", d);
