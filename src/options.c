@@ -751,7 +751,7 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 			break;
 
 		case 'O':
-			sscanf(optarg, "%hd,%hd,%hd", &tc->buf_off[0], &tc->buf_off[1],
+			sscanf(optarg, "%hu,%hu,%hu", &tc->buf_off[0], &tc->buf_off[1],
 				&tc->buf_off[2]);
 			for (i = 0; i < ARRAY_SIZE(tc->buf_off); i++)
 				tc->buf_off[i] %= 4 * 1024;
@@ -920,8 +920,10 @@ parse_options(int argc, char **argv, struct tcfg *tc, struct parse_info *pi)
 	}
 
 	rc = test_barrier_init(tc);
-	if (rc)
+	if (rc) {
+		free(cpu_idx);
 		return rc;
+	}
 
 	for (i = 0; i < tc->nb_cpus; i++) {
 		tc->tcpu[i].cpu_num = cpu_idx[i].c;

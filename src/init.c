@@ -202,6 +202,7 @@ alloc_mmio_mem(struct tcfg *tcfg)
 			MAP_POPULATE | MAP_SHARED, fd, tcfg->mmio_mem[i].mmio_offset);
 		if (addr == MAP_FAILED) {
 			ERR("Error mapping mmio: %s : %s\n", strerror(errno), fname);
+			close(fd);
 			return -errno;
 		}
 
@@ -675,22 +676,27 @@ static
 int init_numa_node(struct tcfg *tcfg, int nb_numa_node)
 {
 	int nb_cpu_node = 0;	/* cpu node count */
-	int (*numa_node)[NUM_ADDR_MAX];
-	int *numa_nb_cpu;
-	struct numa_mem *nm;
+	int (*numa_node)[NUM_ADDR_MAX] = NULL;
+	int *numa_nb_cpu = NULL;
+	struct numa_mem *nm = NULL;
 	int i, j;
+	int rc;
 
 	numa_node = calloc(nb_numa_node, sizeof(numa_node[0]));
 	if (!numa_node)
 		return -ENOMEM;
 
 	numa_nb_cpu = calloc(nb_numa_node, sizeof(numa_nb_cpu[0]));
-	if (!numa_nb_cpu)
-		return -ENOMEM;
+	if (!numa_nb_cpu) {
+		rc = -ENOMEM;
+		goto err_ret;
+	}
 
 	nm = calloc(nb_numa_node, sizeof(nm[0]));
-	if (!nm)
-		return -ENOMEM;
+	if (!nm) {
+		rc = -ENOMEM;
+		goto err_ret;
+	}
 
 	tcfg->numa_mem = nm;
 	tcfg->numa_nb_cpu = numa_nb_cpu;
@@ -718,7 +724,8 @@ int init_numa_node(struct tcfg *tcfg, int nb_numa_node)
 	if (tcfg->nb_numa_node && tcfg->nb_numa_node != nb_cpu_node) {
 		ERR("Numa specifiers (%d) does not match numa node count (%d)\n",
 			tcfg->nb_numa_node, nb_cpu_node);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto err_ret;
 	}
 
 	j = 0;
@@ -737,6 +744,13 @@ int init_numa_node(struct tcfg *tcfg, int nb_numa_node)
 	tcfg->numa_node = numa_node;
 
 	return 0;
+
+err_ret:
+	free(numa_node);
+	free(numa_nb_cpu);
+	free(nm);
+
+	return rc;
 }
 
 int
