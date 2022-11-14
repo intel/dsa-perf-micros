@@ -380,8 +380,7 @@ test_init_wq(struct tcfg_cpu *tcpu)
 
 	wq_info_get(tcpu->wq, tcpu->wq_info);
 	tcpu->dwq = tcpu->wq_info->dwq;
-	tcpu->qd = (!tcpu->dwq || tcfg->qd == 0 || !tcfg->loop) ?
-				tcpu->wq_info->size : tcfg->qd;
+	tcpu->qd = tcfg->qd == 0 ? tcpu->wq_info->size : tcfg->qd;
 	tcpu->qd = min(tcpu->qd, tcfg->nb_desc);
 
 	INFO("CPU %d dname %s wq size %d shared %d qd %d\n", tcpu->cpu_num,

@@ -258,31 +258,6 @@ submit_b2e(struct tcfg_cpu *tcpu, int begin, int end)
 
 	DEBUG_CPU(tcpu, "submit begin %d end %d\n", begin, end);
 
-	if (!tcpu->dwq) {
-		b = begin;
-
-		do {
-			if (desc[b].opcode == DSA_OPCODE_DRAIN) {
-				/*
-				 * sfence is needed before sending a drain desc.
-				 * to ensure previous descs are seen by the
-				 * device before the drain descriptor
-				 */
-				__builtin_ia32_sfence();
-				tcpu->drain_submitted = rdtsc();
-			}
-			dsa_desc_submit(wq_reg, tcpu->dwq, &desc[b]);
-			if (b == end)
-				break;
-			b++;
-			if (unlikely(b == ring_size))
-				b = 0;
-		} while (1);
-
-		return begin <= end ? end - begin + 1 :
-					ring_size - begin + end + 1;
-	}
-
 	b = begin;
 	do {
 		if (desc[b].opcode == DSA_OPCODE_DRAIN) {
