@@ -700,13 +700,9 @@ calc_cycles(struct tcfg *tcfg)
 	tcfg->retry = retry/tcfg->nb_cpus;
 	tcfg->mwait_cycles = mwait_cycles/tcfg->nb_cpus;
 
-	if (tcfg->iter) {
-		tcfg->retry /= tcfg->iter;
-		tcfg->mwait_cycles /= tcfg->iter;
-	}
-
-	if (tcfg->iter)
-		tcfg->cycles = !tcfg->loop ? cycles/tcfg->nb_cpus : (max - min)/tcfg->iter;
+	tcfg->retry /= tcfg->iter;
+	tcfg->mwait_cycles /= tcfg->iter;
+	tcfg->cycles = !tcfg->loop ? cycles/tcfg->nb_cpus : (max - min)/tcfg->iter;
 }
 
 static void

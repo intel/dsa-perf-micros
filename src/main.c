@@ -696,8 +696,8 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 	}
 	tcpu->tend = rdtsc();
 
-	if (tcfg->iter)
-		tcpu->cycles = (tcpu->tend - tcpu->tstart)/tcfg->iter;
+	tcpu->cycles = tcpu->tend - tcpu->tstart;
+	tcpu->cycles /= tcfg->iter;
 
 	d = 0;
 	while (d < tcpu->qd) {
