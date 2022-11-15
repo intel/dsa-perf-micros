@@ -672,10 +672,13 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 	nb_desc = tcfg->nb_desc;
 
 	reset_cmpltn(tcpu, 0, nb_desc - 1, nb_desc);
+	/*
+	 * mark as many descriptos complete as do_single_iter()
+	 * should be able to submit at the beginning of iteration 0
+	 */
+	for (d = 0; d < min(nb_desc, tcpu->qd); d++)
+		comp_rec(tcpu, d)->status = DSA_COMP_SUCCESS;
 	__builtin_ia32_sfence();
-
-	/* submit as many descs as there would be in the WQ when do_single_iter() returns */
-	submit_b2e(tcpu, 0, min(nb_desc - 1, tcpu->qd - 1));
 
 	do_cache_ops(tcpu);
 
@@ -684,6 +687,11 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 	INFO_CPU(tcpu, "Running BW test\n");
 
 	inf = tcfg->iter == ~0U;
+
+	if (do_single_iter(tcpu, nb_desc)) {
+		ERR("Failed initial descriptor submission \n");
+		goto error2;
+	}
 
 	tcpu->curr_stat.iter = 0;
 	tcpu->tstart = rdtsc();
