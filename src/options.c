@@ -97,7 +97,7 @@ void print_usage(void)
 	"\t                       e.g., -F 0xFFFFF7:0x8:4 to clear Addr2_TC flag and set RCR=1 on every 4th descriptor\n"
 	"\t-h                   ; Print this message\n"
 	"\t-i <iterations>      ; The number of iterations to run the test for\n"
-	"\t-j                   ; Continuously stream descriptors to the device (use for bandwidth measurement)\n"
+	"\t-j                   ; deprecated parameter - default behavior\n"
 	"\t-k <CPU list>        ; List of CPUs (e.g., -k0, -k0,1,2,3, -k0-2, -k0-2,3)\n"
 	"\t-K <CPU/WQ list>     ; List of CPUs and associated WQ (e.g., [0,1]@dsa0,0,[2-3]@dsa0,1)\n"
 	"\t-l <0/1>             ; Use large pages, 0 for 2M, 1 for 1G.\n"
@@ -114,8 +114,8 @@ void print_usage(void)
 	"\t-T <time in sec>     ; Time interval for BW measurement, use with -i-1\n"
 	"\t-u<engine count>     ; Use VFIO/UIO device, engine count is optional\n"
 	"\t-w <0/1>             ; WQ type, 0 => dedicated, 1 => shared\n"
-	"\t-W<warmup iterations> ; TLB/cache warmup loop count (not included in measurements, use for latency measurments)\n"
-	"\t-x<misc_flags>       ; bit0 => init devtlb each iteration (use for latency measurments)\n"
+	"\t-W<warmup iterations> ; deprecated prameter - check sample_command_lines.rst for latency measurement command line\n"
+	"\t-x<misc_flags>       ; bit0 => deprecated - check sample_command_lines.rst for latency measurement command line\n"
 	"\t                       bits[1:5]: movdir64/enqcmd submission rate test\n"
 	"\t                       bit[7:8] => pause(7)/umwait(8) in completion wait (use for latency measurement)\n"
 	"\t                       bits[9:31] => unused\n"
@@ -601,12 +601,6 @@ fixup_options(struct tcfg *tc, struct parse_info *pi)
 		break;
 	}
 
-	if (tc->warmup_iter > tc->iter)
-		tc->warmup_iter = tc->iter - 1;
-
-	if (!tc->dma)
-		tc->loop = 0;
-
 }
 
 static void
@@ -697,7 +691,7 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 			break;
 
 		case 'j':
-			tc->loop = 1;
+			printf("-j option is deprecated (default behavior)\n");
 			break;
 
 		case 'k':
@@ -805,7 +799,7 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 			break;
 
 		case 'W':
-			tc->warmup_iter = strtoul(optarg, NULL, 0);
+			printf("Warmup iteration - W, parameter deprecated, supply large i (e.g., 1000)\n");
 			break;
 
 		case 'w':
@@ -828,6 +822,8 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 
 		case 'x':
 			tc->misc_flags |= strtoul(optarg, NULL, 16);
+			if (tc->misc_flags & DEVTLB_INIT_FLAG)
+				printf("-x1 deprecated, use -n2 -q1 -t max(page size, align_h(buffer size, page size))\n");
 			break;
 
 		case 'Y':

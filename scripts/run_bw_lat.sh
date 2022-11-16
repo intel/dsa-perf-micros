@@ -25,6 +25,28 @@ if (( $# < 12 )); then
 	exit;
 fi
 
+size2mb=$(( 2 * 1024 * 1024 ))
+size1g=$(( 1 * 1024 * 1024 * 1024 ))
+size4k=$(( 4 * 1024 ))
+
+init_devtlb_miss_stride() {
+	local pg_sz;
+
+	p1g=`echo $misc_flags | grep l1`
+	p2m=`echo $misc_flags | grep l0`
+	if [ -z "$p1g" ] && [[ -z "$p2m" ]]; then
+		pg_sz=$size4k
+	fi
+
+	if [ -z "$p1g" ]; then
+			pg_sz=$size2mb
+	else
+			pg_sz=$size1g
+	fi
+
+	stride="-t$(( ((x - 1 )/pg_sz + 1) * pg_sz ))"
+}
+
 ### Enable cpu/platform performance settings
 # Energy perf bias setting
 x86_energy_perf_policy performance
@@ -89,6 +111,7 @@ echo >> $outf;
 devn=`echo $dev |cut -d ':' -f1`;
 
 if [ $mode = "lat" ]; then
+	qd=1;
 	iter=1;
 	ndesc=1;
 	startsz=64;
@@ -104,7 +127,7 @@ if [ $mode = "lat" ]; then
 
 	atsflags1=" ";
 	lattstr1="-iotlbM"; # iotlbM using single desc, 1 iter
-	atsflags2="-x1 -W99 -i100";
+	atsflags2="-i100";
 	lattstr2="-iotlbH";  # iotlbH by warming up iommu caches only (evicts devtlb)
 	atsflags3="-W99  -i100";
 	lattstr3="-devtlbH"; #devtlbH by warming up devtlb
@@ -129,9 +152,9 @@ else
 	dfield=5;
 	# use diff portal addr if dwq
 	if (( $wq_type == 0 )); then
-		misc_flg="-j -c ${pgsz_flg}";
+		misc_flg="-c ${pgsz_flg}";
 	else # for swq, no need to vary portal addr since 1 thread can only do 1 at a time (app picks a diff CL addr per thread)
-		misc_flg="-j ${pgsz_flg}";
+		misc_flg="${pgsz_flg}";
 	fi
 	startsz=256;
 	cplloopflags1="-x80";
@@ -325,6 +348,8 @@ orig_maxsz=$maxsz;
 orig_iter=$iter;
 echo start `date` >> $sumf;
 
+echo $fcnt
+
 for (( b=$startb; $b < $maxb; b=( $b * $mulb ) )); do
 	for (( fc=1; $fc <= $fcnt; fc=( $fc + 1 ) )); do
 		sflg="echo \$flags$fc";
@@ -350,6 +375,15 @@ for (( b=$startb; $b < $maxb; b=( $b * $mulb ) )); do
 
 			for (( x=$startsz; $x < $maxsz; x=( $x * 2 ) )); do
 				it=$iter;
+				stride=""
+				if [ $mode = "lat" ]; then
+					if [ $fc = 2 ]; then
+						ndesc=2;
+						init_devtlb_miss_stride
+					else
+						ndesc=1;
+					fi
+				fi
 				if [ $mode = "bw" ]; then
 					if (( $iter >= 10000 && $x > 64000 )); then
 						it=`expr $iter / 10`;
@@ -359,9 +393,9 @@ for (( b=$startb; $b < $maxb; b=( $b * $mulb ) )); do
 				echo "==== op$op $tstr:batch$b $flg ${x}B ===";
 				if [ $batch = "yes" ]; then
 					nd=`expr $b \* $scaleb`;
-					cmd="$bin -i${it} -n${nd} -b${b} -s$x -w$wq_type -o$op $flg $misc_flg -k$core-$lcore ";
+					cmd="$bin -i${it} -n${nd} -b${b} -s$x -w$wq_type -o$op $flg $misc_flg -k$core-$lcore -q$qd $stride";
 				else
-					cmd="$bin -i${it} -n${ndesc} -s$x -w$wq_type -o$op $flg $misc_flg -k$core-$lcore ";
+					cmd="$bin -i${it} -n${ndesc} -s$x -w$wq_type -o$op $flg $misc_flg -k$core-$lcore -q$qd $stride";
 				fi
 				sum=0;
 				val=0;
@@ -382,10 +416,10 @@ for (( b=$startb; $b < $maxb; b=( $b * $mulb ) )); do
 					$cmd 1>>${tmpf}1 2>>${tmpf}1;
 					# wait till this loop is done before dumping into the log
 					cat ${tmpf}1 >> $tmpf;
-					val=`egrep cycles ${tmpf}1`;
+					val=`egrep GB ${tmpf}1`;
 					# if the test failed, it may not be found
 					if (( $? == 0 )); then
-						val=`egrep cycles ${tmpf}1 |cut -d ' ' -f ${dfield} |cut -d '.' -f1`;
+						val=`egrep GB ${tmpf}1 |cut -d ' ' -f ${dfield} |cut -d '.' -f1`;
 						if [ $mode = "bw" ]; then
 							# try the next core if the data from this one is too low
 							if (( $x > $startsz && ( $val == 0 || $val < $prevthresh ) )); then
@@ -437,11 +471,11 @@ for (( b=$startb; $b < $maxb; b=( $b * $mulb ) )); do
 
 				# append to the main log
 				cat $tmpf >> $outf;
-				cnt=`egrep cycles $tmpf |wc -l`;
+				cnt=`egrep GB $tmpf |wc -l`;
 				# skip the top and bottom x% of values and average the rest
 				cnts=`expr $cnt / $skip_pcnt`;
 				cnte=`expr $cnt - $cnts`;
-				vals=`egrep cycles $tmpf |cut -d ' ' -f ${dfield} |cut -d '.' -f1 |sort -n`;
+				vals=`egrep GB $tmpf |cut -d ' ' -f ${dfield} |cut -d '.' -f1 |sort -n`;
 				l=0;
 				cnt=0;
 				for val in `echo $vals`; do
@@ -463,7 +497,7 @@ for (( b=$startb; $b < $maxb; b=( $b * $mulb ) )); do
 				fi
 				echo "prevthresh: $prevthresh";
 				echo "==== ${mode}_core$core op$op $tstr: $flg ${x}B : sum: $sum avg: $avg (cnt: $cnt) ===" >> $sumf;
-				#echo "==== core$core op$op $tstr: $flg ${x}B : " `egrep cycles $tmpf` >> $sumf;
+				#echo "==== core$core op$op $tstr: $flg ${x}B : " `egrep GB $tmpf` >> $sumf;
 				echo
 
 				val1g=`expr 1024 \* 1024 \* 1024`;

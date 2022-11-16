@@ -17,11 +17,9 @@ test_all_ops() {
 		for ((o=${bop[$i]}; o<=${eop[$i]}; o++)); do
 			echo "testing $o"
 			$bin -o$o -n1 $*
-			$bin -o$o -n1 $* -j
 
 			$bin -o$o -n2 -b2 $*
-			$bin -o$o -n2 -b2 $* -j
-			$bin -o$o -n2 -b2 $* -j -a
+			$bin -o$o -n2 -b2 $* -a
 		done
 	done
 }
@@ -31,9 +29,9 @@ test_params_loop() {
 	$setup -d$d -w 1 -md
 
 # test qd
-	$bin -o3 -q16 -n32 -jcf
+	$bin -o3 -q16 -n32 -cf
 # test offset
-	$bin -o3 -O32,40 -jcf
+	$bin -o3 -O32,40 -cf
 }
 
 test_all_cfg() {

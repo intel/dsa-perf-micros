@@ -138,50 +138,6 @@ test_init_fn(void *arg)
 	test_init_percpu(tcpu);
 }
 
-static inline int
-init_devtlb(struct tcfg_cpu *tcpu)
-{
-	struct tcfg *tcfg = tcpu->tcfg;
-	char *src = tcpu->misc_b1;
-	char *dst = tcpu->misc_b2;
-	struct dsa_hw_desc mm_desc = { .opcode = DSA_OPCODE_MEMMOVE,
-				   .flags = IDXD_OP_FLAG_CRAV | IDXD_OP_FLAG_RCR};
-	struct dsa_completion_record *comp;
-	int retry;
-
-	INFO_CPU(tcpu, "invalidating dev_tlb\n");
-
-	mm_desc.src_addr = rte_mem_virt2iova(src);
-	mm_desc.dst_addr = rte_mem_virt2iova(dst);
-	mm_desc.xfer_size = tcfg->blen;
-
-	mm_desc.completion_addr = (uint64_t)(dst + tcfg->blen);
-	comp = (struct dsa_completion_record *)(dst + tcfg->blen);
-	comp->status = 0;
-	__builtin_ia32_sfence();
-	/* Init devtlb using memcpy src->dst */
-	dsa_desc_submit(tcpu->wq, tcpu->dwq, &mm_desc);
-
-	retry = 0;
-	while (comp->status == 0 && retry < MAX_COMP_RETRY)
-		retry++;
-	if (retry == MAX_COMP_RETRY) {
-		ERR("1: %u: Timeout waiting for completion, devtlb_flush\n",
-			tcpu->cpu_num);
-		tcpu->err = 1;
-		return 1;
-	}
-
-	if (comp->status != DSA_COMP_SUCCESS) {
-		ERR("1: %u: completion status (%d) is not success\n",
-			tcpu->cpu_num, comp->status);
-		tcpu->err = 1;
-		return 1;
-	}
-
-	return 0;
-}
-
 static inline struct dsa_completion_record *
 comp_rec(struct tcfg_cpu *tcpu, int r)
 {
@@ -460,132 +416,6 @@ check_result_one(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 	return tcpu->err;
 }
 
-static inline void
-submit_test_desc(struct tcfg_cpu *tcpu)
-{
-	struct tcfg *tcfg = tcpu->tcfg;
-	int nb_desc = tcfg->nb_desc;
-	uint32_t it;
-	int d;
-	uint32_t tsc_cnt;
-	bool inf;
-	uint32_t flags;
-
-	tcfg = tcpu->tcfg;
-	tcpu->cycles = 0;
-	tsc_cnt = 0;
-
-	inf = tcfg->iter == ~0U;
-	flags = tcfg->misc_flags;
-
-	tcpu->min_cyc = ~0ULL;
-	tcpu->max_cyc = 0;
-
-	if (!iommu_disabled()) {
-
-		test_barrier(tcfg, 0);
-		if (tcpu == &tcfg->tcpu[0])
-			tcpu->err = iotlb_invd(tcfg);
-		if (test_barrier(tcfg, tcpu->err))
-			return;
-	}
-
-	do_cache_ops(tcpu);
-
-	test_barrier(tcfg, 0);
-
-	INFO_CPU(tcpu, "Running Latency test\n");
-
-	for (it = 0; inf || it < tcfg->iter; it++) {
-		uint64_t tstart, tend;
-		struct poll_cnt poll_cnt;
-		int it_cnt;
-
-		reset_cmpltn(tcpu, 0, nb_desc - 1, nb_desc);
-		__builtin_ia32_sfence();
-
-		tcpu->err = !iommu_disabled() &&  (flags & DEVTLB_INIT_FLAG) ?
-							init_devtlb(tcpu) : 0;
-		if (tcpu->err)
-			return;
-
-		it_cnt = 0;
-
-		tstart = rdtsc();
-
-		submit_b2e(tcpu, 0, nb_desc - 1);
-
-		for (d = nb_desc - 1; d >= 0; d--) {
-
-			if (unlikely(poll_comp(tcpu, d, &poll_cnt, flags))) {
-
-				tcpu->err = 1;
-
-				if (poll_cnt.retry > MAX_COMP_RETRY) {
-					ERR("Retry limit exceeded\n");
-					goto error1;
-				}
-
-				ERR("Iteration (%d), comp (%d)\n", it, d);
-				print_comp_err(tcpu, d);
-				goto error1;
-			}
-
-			if (poll_cnt.retry) {
-				tend = rdtsc();
-				it_cnt = 1;
-			}
-
-			if (flags & CPL_UMWAIT) {
-				if (poll_cnt.mwait > 1)
-					tcpu->mwait_cnt_arr[2]++;
-				else
-					tcpu->mwait_cnt_arr[poll_cnt.mwait]++;
-
-				if (!poll_cnt.retry)
-					tcpu->monitor_cnt_arr[0]++;
-				if (poll_cnt.monitor != poll_cnt.mwait)
-					tcpu->monitor_cnt_arr[1]++;
-
-				tcpu->os_dline_exp += poll_cnt.os_dline_exp;
-			}
-		}
-
-		if (it_cnt && it >= tcfg->warmup_iter) {
-
-			tcpu->min_cyc = min(tcpu->min_cyc, tend - tstart);
-			tcpu->max_cyc = max(tcpu->max_cyc, tend - tstart);
-
-			if (tend - tstart < 5 * tcpu->min_cyc) {
-				tcpu->cycles += tend - tstart;
-				tsc_cnt++;
-			}
-
-			if (tsc_cnt && inf && !(tsc_cnt % INF_LOOP_SHOW_STATS)) {
-				printf("avg cycles %lu min %lu max %lu\n",
-					tcpu->cycles/tsc_cnt, tcpu->min_cyc, tcpu->max_cyc);
-				tcpu->min_cyc = ~0U;
-				tcpu->max_cyc = 0;
-				tcpu->cycles = 0;
-				tsc_cnt = 0;
-			}
-		}
-
-		tcpu->curr_stat.iter++;
-	}
-
-	if (tsc_cnt)
-		tcpu->cycles /= tsc_cnt;
-
-	INFO_CPU(tcpu, "Latency test done\n");
-
-	tcpu->err = 0;
-	return;
-
-error1:
-	tcpu->err = 1;
-}
-
 static __always_inline int
 do_single_iter(struct tcfg_cpu *tcpu, int nb_desc)
 {
@@ -658,7 +488,7 @@ do_single_iter(struct tcfg_cpu *tcpu, int nb_desc)
 }
 
 static inline void
-submit_test_desc_loop(struct tcfg_cpu *tcpu)
+submit_test_desc(struct tcfg_cpu *tcpu)
 {
 	uint32_t i;
 	int d;
@@ -682,9 +512,27 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 
 	do_cache_ops(tcpu);
 
+	/*
+	 * Since we have executed descriptors previously,
+	 * for iotlb (IOMMU  miss latency measurement), we need to invalidate
+	 * the IOMMU, these measurements are soon going to be replaced
+	 * the ability to do a large address stride that will cause 2
+	 * consecutive descriptors to miss the iotlb caches completely
+	 */
+	if (!iommu_disabled()) {
+		test_barrier(tcfg, 0);
+		if (tcpu == &tcfg->tcpu[0])
+			tcpu->err = iotlb_invd(tcfg);
+		if (test_barrier(tcfg, tcpu->err))
+			return;
+	}
+
 	test_barrier(tcfg, 0);
 
-	INFO_CPU(tcpu, "Running BW test\n");
+	if (tcpu->qd == 1 || tcfg->nb_bufs == 1)
+		INFO_CPU(tcpu, "Running Latency test\n");
+	else
+		INFO_CPU(tcpu, "Running BW test\n");
 
 	inf = tcfg->iter == ~0U;
 
@@ -715,19 +563,11 @@ submit_test_desc_loop(struct tcfg_cpu *tcpu)
 		d++;
 	}
 
-	INFO_CPU(tcpu, "BW test done\n");
+	INFO_CPU(tcpu, "test done\n");
 	tcpu->err = 0;
 error2:
 	return;
 }
-
-static void
-submit_test_desc_common(struct tcfg_cpu *tcpu)
-{
-	tcpu->tcfg->loop ? submit_test_desc_loop(tcpu) :
-			submit_test_desc(tcpu);
-}
-
 
 static void
 do_desc_work(struct tcfg_cpu *tcpu)
@@ -774,7 +614,7 @@ do_desc_work(struct tcfg_cpu *tcpu)
 	if (tcpu->err)
 		return;
 
-	submit_test_desc_common(tcpu);
+	submit_test_desc(tcpu);
 }
 
 static void *
@@ -955,7 +795,6 @@ main(int argc, char **argv)
 		.wq_type = 0,
 		.batch_sz = 1,
 		.iter = 1000,
-		.warmup_iter = 999,
 		.fill = 0xc0debeefc0deabcd,
 		.op = DSA_OPCODE_MEMMOVE,
 		.dma = 1,
@@ -999,21 +838,14 @@ main(int argc, char **argv)
 
 	do_results(&tcfg);
 
-	if (!tcfg.loop) {
-		struct tcfg_cpu *tcpu = &tcfg.tcpu[0];
+	printf("GB per sec = %f", tcfg.bw);
+	if (tcfg.qd == 1 || tcfg.nb_bufs == 1)
+		printf(" latency(cycles) = %f, %f ns,"
+		" cycles/sec =%ld",
+		tcfg.latency, (tcfg.latency * 1E9)/tcfg.cycles_per_sec,
+		tcfg.cycles_per_sec);
+	printf(" cpu %f kopsrate = %d\n", tcfg.cpu_util, tcfg.ops_rate);
 
-		printf("Number of monitors done: [0]:%d, [1]:%d\n",
-			tcpu->monitor_cnt_arr[0], tcpu->monitor_cnt_arr[1]);
-		printf("Number of mwaits done: [0]:%d, [1]:%d, [> 1]:%d\n",
-			tcpu->mwait_cnt_arr[0], tcpu->mwait_cnt_arr[1],
-			tcpu->mwait_cnt_arr[2]);
-		printf("Number of OS deadline mwaits: %d\n", tcpu->os_dline_exp);
-	}
-
-	printf("GB per sec = %f latency(cycles) = %f, %f ns,"
-		" cycles/sec =%ld cpu %f kopsrate = %d\n",
-		tcfg.bw, tcfg.latency, (tcfg.latency * 1E9)/tcfg.cycles_per_sec,
-		tcfg.cycles_per_sec, tcfg.cpu_util, tcfg.ops_rate);
 
 	if (tcfg.drain_desc) {
 		double drain_usec = ((1.0 * tcfg.drain_lat)/tcfg.cycles_per_sec) * 1000000;

@@ -84,7 +84,6 @@ struct poll_cnt {
 		int monitor;
 	};
 	int mwait;
-	int os_dline_exp;
 	uint64_t mwait_cycles;
 };
 
@@ -148,18 +147,7 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	struct dsa_hw_desc *bdesc;
 	struct tcfg *tcfg;	/* pointer to test cfg */
 
-	int monitor_cnt_arr[2]; /*
-				 * 0 -> 0 monitor count (retry == 0)
-				 * 1 -> completion detected between monitor & mwait
-				 */
-
-	int mwait_cnt_arr[3]; /*
-			       * 0 -> Cnt of 0 mwaits
-			       * 1 -> Cnt of 1 mwaits
-			       * 2 -> Cnt of mwaits > 1
-			       */
 	struct wq_info *wq_info;
-	int os_dline_exp;
 	uint64_t min_cyc;
 	uint64_t max_cyc;
 
@@ -216,9 +204,6 @@ struct tcfg {
 	uint32_t wq_type;			/* wq type (-w) */
 	uint32_t batch_sz;			/* batch size (-b) */
 	uint32_t iter;				/* iterations (-i) */
-	uint32_t warmup_iter;			/* number of iterations used to warm up system state
-						 * will not be included in measurements (-W)
-						 */
 	uint32_t op;				/* opcode (-o) */
 	bool verify;				/* verify data after generating descriptors (-v)  */
 	bool dma;				/* use dma v/s memcpy (-m) */
@@ -235,7 +220,6 @@ struct tcfg {
 	int place_op[NUM_ADDR_MAX];		/* -y */
 	int access_op[NUM_ADDR_MAX];		/* -z */
 	uint16_t buf_off[NUM_ADDR_MAX];		/* -O */
-	bool loop;				/* use descriptor loop (-j) */
 	uint32_t misc_flags;			/* -x */
 	uint32_t ccmask;			/* cache control mask (-f) */
 	uint32_t flags_cmask;			/* flags to clear in the descriptor (-F) */
@@ -257,6 +241,7 @@ struct tcfg {
 
 	uint32_t nb_desc;			/* num descriptors not including batch */
 
+	uint64_t bw_cycles;
 	uint64_t cycles;			/* avg of execution cycles across CPUs */
 	uint64_t retry;				/* completion polling retries */
 	uint64_t mwait_cycles;			/* cycles spent in mwait */
@@ -431,7 +416,7 @@ do_comp_flags(struct dsa_completion_record *comp, uint32_t flags,
 			uint64_t delay;
 
 			delay = tsc + UMWAIT_DELAY;
-			poll_cnt->os_dline_exp += umwait(delay, UMWAIT_STATE);
+			umwait(delay, UMWAIT_STATE);
 			poll_cnt->mwait_cycles += __rdtsc() - tsc;
 		}
 	}

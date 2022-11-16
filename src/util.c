@@ -625,7 +625,7 @@ print_tcfg(struct tcfg *tcfg)
 		MAKE_DISP_10(pg_size),	MAKE_DISP_10(wq_type),
 		MAKE_DISP_10(batch_sz),
 		MAKE_DISP_10(iter),
-		MAKE_DISP_10(warmup_iter), MAKE_DISP_10(nb_cpus),
+		MAKE_DISP_10(nb_cpus),
 		MAKE_DISP_10(var_mmio), MAKE_DISP_10(dma),
 		MAKE_DISP_10(verify), MAKE_DISP_INT(misc_flags, 16),
 		MAKE_DISP_STR(access_op[0], access_str), MAKE_DISP_STR(access_op[1], access_str),
@@ -682,27 +682,26 @@ calc_cycles(struct tcfg *tcfg)
 	for (i = 0; i < tcfg->nb_cpus; i++) {
 		struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
 
-		if (!tcfg->loop)
-			cycles += tcpu->cycles;
-		else {
-			if (i == 0)
-				min = max = tcpu->tstart;
+		if (i == 0)
+			min = max = tcpu->tstart;
 
-			if (min > tcpu->tstart)
-				min = tcpu->tstart;
-			if (max < tcpu->tend)
-				max = tcpu->tend;
-			retry += tcpu->curr_stat.retry;
-			mwait_cycles += tcpu->curr_stat.mwait_cycles;
-		}
+		if (min > tcpu->tstart)
+			min = tcpu->tstart;
+		if (max < tcpu->tend)
+			max = tcpu->tend;
+
+		cycles += tcpu->cycles;
+		retry += tcpu->curr_stat.retry;
+		mwait_cycles += tcpu->curr_stat.mwait_cycles;
 	}
 
 	tcfg->retry = retry/tcfg->nb_cpus;
 	tcfg->mwait_cycles = mwait_cycles/tcfg->nb_cpus;
+	tcfg->cycles = cycles/tcfg->nb_cpus;
+	tcfg->bw_cycles = (max - min)/tcfg->iter;
 
 	tcfg->retry /= tcfg->iter;
 	tcfg->mwait_cycles /= tcfg->iter;
-	tcfg->cycles = !tcfg->loop ? cycles/tcfg->nb_cpus : (max - min)/tcfg->iter;
 }
 
 static void
@@ -755,7 +754,7 @@ calc_bw(struct tcfg *tcfg)
 {
 	float secs;
 
-	secs = (float)tcfg->cycles/tcfg->cycles_per_sec;
+	secs = (float)tcfg->bw_cycles/tcfg->cycles_per_sec;
 
 	tcfg->bw = (data_size_per_iter(tcfg)/secs)/1000000000;
 }

@@ -67,25 +67,30 @@ Sample Command Lines
 
   $ ./src/dsa_perf_micros -n$(( 128 * 4 )) -b4  -s4k -j -f -i1000 -k5 -w1 -zF,F -o3
 
-* Latency Measurment
+* Latency Measurement
 
   Measure latency of single memmove descriptor with synchronous completion;
   submitted from single cpu core (core 1) to DWQ on DSA device. Each memmove is
-  16KB size, source data in memory, destination write allocated in the LLC
+  1KB size, source data in memory, destination write allocated in the LLC
   (i.e., set cache control flag to 1). Use a group that has a single engine for
   these measurements to avoid overlap of consecutive operations.
 
-  * Measure with IOMMU Non-Leaf Cache hit, DSA ATC miss.
+  * Measure with IOMMU Non-Leaf Cache hit, device TLB miss. Use a stride that is the max
+    of (page size, align_high(transfer size, page size)). This test uses 2 pairs of src
+    and dest buffers, since the test uses a single engine and the stride between
+    src addresses (and dest addresses) in the 2 descriptors is 4K, the
+    src and dest addresses of any given descriptor miss the TLB entry installed as part
+    of executing the previous descriptor.
 
   .. code-block:: console
 
-     $ ./src/dsa_perf_micros -n1 -w0 -o3 -zF,F -f -s16k -W99 -i100 -k1 -x1
+     $ ./src/dsa_perf_micros -n2 -w0 -o3 -zF,F -f -s1k -i100 -k1 -q1 -t4k
 
-  * Measure with IOMMU Non-Leaf Cache hit.
+  * Measure with device TLB hit.
 
   .. code-block:: console
 
-     $ ./src/dsa_perf_micros -n1 -w0 -o3 -zF,F -f -s16k -W99 -i100 -k1
+     $ ./src/dsa_perf_micros -n1 -w0 -o3 -zF,F -f -s1k -i100 -k1 -q1
 
 * Multiple DSAs with Dedicated WQ (use different cores if SNC mode is turned on).
   Any Dedicated DSA WQ within the same NUMA node is selected if available.

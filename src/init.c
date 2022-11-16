@@ -160,21 +160,6 @@ alloc_buf_offsets(struct tcfg *tcfg)
 			}
 		}
 	}
-
-	if (tcfg->misc_flags & DEVTLB_INIT_FLAG) {
-		uint64_t misc_b1_sz = tcfg->blen;
-
-		for (i = 0; i < tcfg->nb_cpus; i++) {
-			struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
-			int node = tcpu->numa_node;
-			uint64_t misc_b2_sz = misc_b1_sz +  sizeof(tcpu->comp[0]) *  2;
-
-			tcpu->misc_b1 = alloc_numa_offset(tcfg, misc_b1_sz, node, 0);
-			tcpu->misc_b2 = alloc_numa_offset(tcfg, misc_b2_sz, node, 0);
-
-			INFO("misc_b1 %p misc_b2 %p\n", tcpu->misc_b1, tcpu->misc_b2);
-		}
-	}
 }
 
 
