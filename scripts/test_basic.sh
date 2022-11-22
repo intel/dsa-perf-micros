@@ -32,6 +32,8 @@ test_params_loop() {
 	$bin -o3 -q16 -n32 -cf
 # test offset
 	$bin -o3 -O32,40 -cf
+# test -T
+	$bin -o3 -T2
 }
 
 test_all_cfg() {

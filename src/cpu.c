@@ -145,7 +145,10 @@ test_memcpy(struct tcfg_cpu *tcpu)
 	tcpu->cycles = 0;
 	test_barrier(tcfg, 0);
 
-	for (i = 0; i < tcfg->iter; i++) {
+	/* notify main thread that the test has started */
+	tcpu->tstart = rdtsc();
+
+	for (i = 0; i < tcfg->iter || (tcfg->tval_secs && !tcfg->stop); i++) {
 		uint64_t c;
 
 		src = tcpu->src;
@@ -155,12 +158,9 @@ test_memcpy(struct tcfg_cpu *tcpu)
 		src2 = tcpu->src2;
 
 		/*
-		 * If cpus > 1, then you can either measure the BW for a
-                 * single buffer for a single iteration or if the number
-		 * iterations is > 1 then use a working set such that for a single threaded
-		 * config nb_bufs * blen exceeds the L2 size for LLC BW measurement or
-		 * nb_cpus * nb_bufs * blen exceeds total L2 + LLC size for memory BW
-		 * measurement. Halve the sizes for MT.
+		 * when using > 1 CPU, data placement operations & data
+		 * movement will happen concurrenty across CPUs, hence
+		 * data placement is used only when using a single CPU
 		 */
 		if (tcfg->nb_cpus == 1)
 			do_cache_ops(tcpu);
@@ -210,7 +210,5 @@ test_memcpy(struct tcfg_cpu *tcpu)
 		tcpu->curr_stat.iter++;
 	}
 
-	if (tcfg->iter)
-		tcpu->cycles /= tcfg->iter;
 	tcpu->err = 0;
 }

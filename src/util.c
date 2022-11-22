@@ -666,18 +666,60 @@ print_tcfg(struct tcfg *tcfg)
 }
 
 static void
+iter_count_stat(uint64_t *stat, uint64_t *prev, uint64_t *curr)
+{
+	*stat += *curr - *prev;
+	*prev = *curr;
+}
+
+static void
+count_stat(struct iter_stat *is, struct tcfg_cpu *tcpu)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(is->stat); i++)
+		iter_count_stat(&is->stat[i], &tcpu->prev_stat.stat[i],
+				&tcpu->curr_stat.stat[i]);
+}
+
+static void
+iter_count(struct tcfg *tcfg, struct iter_stat *iter_stat)
+{
+	unsigned int i;
+	struct iter_stat is = {};
+
+	for (i = 0; i < tcfg->nb_cpus; i++) {
+		struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
+
+		count_stat(&is, tcpu);
+	}
+
+	*iter_stat = is;
+}
+
+static void
 calc_cycles(struct tcfg *tcfg)
 {
 	uint32_t i;
 	uint64_t min, max;
 	uint64_t cycles;
-	uint64_t retry;
-	uint64_t mwait_cycles;
+	bool use_tval_secs;
 
 	cycles = 0;
-	retry = 0;
-	mwait_cycles = 0;
 	max = min = 0;
+
+	/*
+	 * convert tval_secs to cycles if conditions below are true
+	 * in cpu mode, when nb_cpus = 1, tval_secs cannot be converted to cycles since
+	 * it would include the time spent in data placement (llc v/s dram)
+	 */
+	use_tval_secs = !!tcfg->tval_secs;
+	use_tval_secs &= !(!tcfg->dma && tcfg->nb_cpus == 1);
+
+	if (use_tval_secs) {
+		tcfg->bw_cycles = tcfg->cycles = tcfg->cycles_per_sec * tcfg->tval_secs;
+		return;
+	}
 
 	for (i = 0; i < tcfg->nb_cpus; i++) {
 		struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
@@ -691,17 +733,10 @@ calc_cycles(struct tcfg *tcfg)
 			max = tcpu->tend;
 
 		cycles += tcpu->cycles;
-		retry += tcpu->curr_stat.retry;
-		mwait_cycles += tcpu->curr_stat.mwait_cycles;
 	}
 
-	tcfg->retry = retry/tcfg->nb_cpus;
-	tcfg->mwait_cycles = mwait_cycles/tcfg->nb_cpus;
-	tcfg->cycles = cycles/tcfg->nb_cpus;
-	tcfg->bw_cycles = (max - min)/tcfg->iter;
-
-	tcfg->retry /= tcfg->iter;
-	tcfg->mwait_cycles /= tcfg->iter;
+	tcfg->cycles = cycles / tcfg->nb_cpus;
+	tcfg->bw_cycles = tcfg->dma ? max - min : tcfg->cycles;
 }
 
 static void
@@ -721,32 +756,32 @@ calc_cpu(struct tcfg *tcfg)
 		tcfg->cpu_util = 100;
 }
 
-void
-calc_cpu_for_sec(struct tcfg *tcfg, int secs)
+static void
+calc_work_sub_rate(struct tcfg *tcfg)
 {
-	tcfg->cycles = tcfg->cycles_per_sec * secs;
-	calc_cpu(tcfg);
+	uint64_t usecs = (tcfg->cycles * 1000 * 1000)/tcfg->cycles_per_sec;
+
+	tcfg->kops_rate = (tcfg->iter * 1000) / usecs;
 }
 
 static void
 calc_ops_rate(struct tcfg *tcfg)
 {
+	long nb_ops;
+	uint64_t usecs = (tcfg->bw_cycles * 1000 * 1000)/tcfg->cycles_per_sec;
 
-	int nsecs = (tcfg->cycles * 1000 * 1000 * 1000)/tcfg->cycles_per_sec;
-	int nb_ops;
-
-	if (!nsecs)
+	if (!usecs)
 		return;
 
-	nb_ops = (tcfg->nb_cpus * tcfg->nb_bufs * tcfg->blen * 1000 * 1000)/nsecs;
-	if (tcfg->op == DSA_OPCODE_CFLUSH)
-		nb_ops = nb_ops/64;
-	else if (tcfg->op == DSA_OPCODE_CR_DELTA)
-		nb_ops = nb_ops/4096;
-	else
-		nb_ops = nb_ops/tcfg->blen;
+	/* kops = (ops/sec) * (1/1000) = ops/msec = (ops * 1000)/usec */
+	nb_ops = tcfg->iter * tcfg->nb_cpus * tcfg->nb_bufs;
 
-	tcfg->ops_rate = nb_ops;
+	if (tcfg->op == DSA_OPCODE_CFLUSH)
+		nb_ops = (nb_ops * tcfg->blen)/64;
+	else if (tcfg->op == DSA_OPCODE_CR_DELTA)
+		nb_ops = (nb_ops * tcfg->blen)/4096;
+
+	tcfg->kops_rate = (nb_ops * 1000)/usecs;
 }
 
 static void
@@ -755,17 +790,16 @@ calc_bw(struct tcfg *tcfg)
 	float secs;
 
 	secs = (float)tcfg->bw_cycles/tcfg->cycles_per_sec;
-
-	tcfg->bw = (data_size_per_iter(tcfg)/secs)/1000000000;
+	tcfg->bw = tcfg->iter * (data_size_per_iter(tcfg)/secs)/1000000000;
 }
 
 static void
 calc_lat(struct tcfg *tcfg)
 {
-	tcfg->latency = 1.0 * (tcfg->misc_flags & (TEST_M64|TEST_DB | TEST_M64MEM |
-				TEST_ENQ | TEST_ENQMEM) ?
-				tcfg->cycles/tcfg->iter :
-				tcfg->cycles/tcfg->nb_bufs);
+	tcfg->latency = 1.0 * tcfg->cycles / tcfg->iter;
+
+	if (!(tcfg->misc_flags & (TEST_M64|TEST_DB | TEST_M64MEM | TEST_ENQ | TEST_ENQMEM)))
+		tcfg->latency /= tcfg->nb_desc;
 }
 
 static void
@@ -790,15 +824,50 @@ calc_drain_latency(struct tcfg *tcfg)
 	tcfg->drain_lat = drain_lat;
 }
 
+static void
+update_iter(struct tcfg *tcfg, uint32_t nb_iter)
+{
+	/* use tcfg->iter */
+	if (!tcfg->tval_secs)
+		return;
+
+	/*
+	 * if cpu && nb_cpus ==1, cycles needed for data placement need
+	 * to be excluded, tcfg->cycles is updated every iter with the cycles
+	 * consumed by the op and current bw = cycles / current iteration count
+	 *
+	 * the calulation below generates the current iteration count
+	 */
+	if (!tcfg->dma && tcfg->nb_cpus == 1) {
+		if (tcfg->iter == -1)
+			tcfg->iter = 0;
+		tcfg->iter += nb_iter;
+		return;
+	}
+
+	tcfg->iter = nb_iter / tcfg->nb_cpus;
+}
+
 void
 do_results(struct tcfg *tcfg)
 {
+	struct iter_stat is;
+
+	iter_count(tcfg, &is);
+
 	calc_cycles(tcfg);
+
+	update_iter(tcfg, is.iter);
+
+	tcfg->retry = is.retry / tcfg->nb_cpus;
+	tcfg->mwait_cycles = is.mwait_cycles / tcfg->nb_cpus;
+
 	calc_cpu(tcfg);
 	calc_bw(tcfg);
 	calc_lat(tcfg);
-	calc_ops_rate(tcfg);
 	calc_drain_latency(tcfg);
+	is_work_rate_sub_test(tcfg) ?
+		calc_work_sub_rate(tcfg) : calc_ops_rate(tcfg);
 }
 
 struct thread_data {

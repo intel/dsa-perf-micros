@@ -493,7 +493,6 @@ submit_test_desc(struct tcfg_cpu *tcpu)
 	uint32_t i;
 	int d;
 	struct tcfg *tcfg;
-	bool inf;
 	int nb_desc;
 
 	tcfg = tcpu->tcfg;
@@ -534,8 +533,6 @@ submit_test_desc(struct tcfg_cpu *tcpu)
 	else
 		INFO_CPU(tcpu, "Running BW test\n");
 
-	inf = tcfg->iter == ~0U;
-
 	if (do_single_iter(tcpu, nb_desc)) {
 		ERR("Failed initial descriptor submission\n");
 		goto error2;
@@ -543,7 +540,7 @@ submit_test_desc(struct tcfg_cpu *tcpu)
 
 	tcpu->curr_stat.iter = 0;
 	tcpu->tstart = rdtsc();
-	for (i = 0; !tcfg->stop && (inf || i < tcfg->iter) ; i++) {
+	for (i = 0; !tcfg->stop && (tcfg->tval_secs || i < tcfg->iter) ; i++) {
 		if (do_single_iter(tcpu, nb_desc)) {
 			ERR("Error iteration: %d\n", i);
 			goto error2;
@@ -553,7 +550,6 @@ submit_test_desc(struct tcfg_cpu *tcpu)
 	tcpu->tend = rdtsc();
 
 	tcpu->cycles = tcpu->tend - tcpu->tstart;
-	tcpu->cycles /= tcfg->iter;
 
 	d = 0;
 	while (d < tcpu->qd) {
@@ -622,7 +618,6 @@ test_run_fn(void *arg)
 {
 	struct tcfg_cpu *tcpu = arg;
 	struct tcfg *tcfg = tcpu->tcfg;
-	bool do_sub_rate;
 
 	cpu_pin(tcpu->cpu_num);
 
@@ -631,11 +626,7 @@ test_run_fn(void *arg)
 		return 0;
 	}
 
-	do_sub_rate = tcfg->misc_flags &
-			(TEST_M64 | TEST_DB | TEST_M64MEM |
-			TEST_ENQ | TEST_ENQMEM);
-
-	if (tcfg->op == DSA_OPCODE_NOOP && do_sub_rate)
+	if (is_work_rate_sub_test(tcfg))
 		work_sub_rate_test(tcpu);
 	else
 		do_desc_work(tcpu);
@@ -643,37 +634,6 @@ test_run_fn(void *arg)
 	return 0;
 }
 
-static void
-iter_count_stat(uint64_t *stat, uint64_t *prev, uint64_t *curr)
-{
-	*stat += *curr - *prev;
-	*prev = *curr;
-}
-
-static void
-count_stat(struct iter_stat *is, struct tcfg_cpu *tcpu)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(is->stat); i++)
-		iter_count_stat(&is->stat[i], &tcpu->prev_stat.stat[i],
-				&tcpu->curr_stat.stat[i]);
-}
-
-static void
-iter_count(struct tcfg *tcfg, struct iter_stat *iter_stat)
-{
-	unsigned int i;
-	struct iter_stat is = {};
-
-	for (i = 0; i < tcfg->nb_cpus; i++) {
-		struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
-
-		count_stat(&is, tcpu);
-	}
-
-	*iter_stat = is;
-}
 
 static void *
 test_fn(void *arg)
@@ -702,10 +662,36 @@ test_fn(void *arg)
 	return NULL;
 }
 
+static void
+print_results(struct tcfg *tcfg)
+{
+	if (is_work_rate_sub_test(tcfg)) {
+		printf("kopsrate = %d", tcfg->kops_rate);
+		if (tcfg->misc_flags & (TEST_ENQ | TEST_ENQMEM))
+			printf(" latency = %d ns", (1000 * 1000) / tcfg->kops_rate);
+		printf("\n");
+		return;
+	}
+
+	printf("GB per sec = %f", tcfg->bw);
+	if (tcfg->qd == 1 || tcfg->nb_bufs == 1)
+		printf(" latency(cycles) = %f, %f ns, cycles/sec =%ld",
+		tcfg->latency, (tcfg->latency * 1E9)/tcfg->cycles_per_sec,
+		tcfg->cycles_per_sec);
+	printf(" cpu %f kopsrate = %d\n", tcfg->cpu_util, tcfg->kops_rate);
+
+	if (tcfg->drain_desc) {
+		double drain_usec = ((1.0 * tcfg->drain_lat)/tcfg->cycles_per_sec) * 1000000;
+
+		printf("Drain desc latency = %lu cycles | %f uSec\n", tcfg->drain_lat, drain_usec);
+	}
+}
+
 static int
 test_run(struct tcfg *tcfg)
 {
 	int i, err = 0;
+	bool inf = tcfg->iter == -1;
 
 	for (i = 0; i < tcfg->nb_cpus; i++) {
 
@@ -728,19 +714,16 @@ test_run(struct tcfg *tcfg)
 		}
 	}
 
-	if (tcfg->iter == ~0U) {
-		uint64_t iter_bytes = data_size_per_iter(tcfg);
+	if (tcfg->tval_secs) {
 
 		err = false;
-		while (!err) {
-			float bw;
-			struct iter_stat is;
+		while (!tcfg->stop) {
+
+			while (tcfg->tcpu[0].tstart == 0)
+				__builtin_ia32_pause();
 
 			sleep(tcfg->tval_secs);
-			iter_count(tcfg, &is);
-
-			bw = (is.iter * iter_bytes)/(1E9 * tcfg->tval_secs);
-			bw = bw/tcfg->nb_cpus;
+			do_results(tcfg);
 
 			for (i = 0, err = false; i < tcfg->nb_cpus; i++) {
 				struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
@@ -757,11 +740,8 @@ test_run(struct tcfg *tcfg)
 				continue;
 			}
 
-			tcfg->retry = is.retry / tcfg->nb_cpus;
-			tcfg->mwait_cycles = is.mwait_cycles / tcfg->nb_cpus;
-			calc_cpu_for_sec(tcfg, tcfg->tval_secs);
-
-			fprintf(stdout, "BW %f GB cpu util %f\n", bw, tcfg->cpu_util);
+			print_results(tcfg);
+			tcfg->stop = !inf;
 		}
 	}
 
@@ -803,7 +783,7 @@ main(int argc, char **argv)
 		.flags_nth_desc = 1,
 		.flags_cmask = -1,
 		.flags_smask = 0,
-		.tval_secs = 4,
+		.tval_secs = 0,
 		.numa_node_default = { -1, -1, -1 },
 		.place_op = { OP_FLUSH, OP_FLUSH, OP_FLUSH },
 		.access_op = { OP_WRITE, OP_WRITE, OP_WRITE },
@@ -838,20 +818,8 @@ main(int argc, char **argv)
 
 	do_results(&tcfg);
 
-	printf("GB per sec = %f", tcfg.bw);
-	if (tcfg.qd == 1 || tcfg.nb_bufs == 1)
-		printf(" latency(cycles) = %f, %f ns,"
-		" cycles/sec =%ld",
-		tcfg.latency, (tcfg.latency * 1E9)/tcfg.cycles_per_sec,
-		tcfg.cycles_per_sec);
-	printf(" cpu %f kopsrate = %d\n", tcfg.cpu_util, tcfg.ops_rate);
-
-
-	if (tcfg.drain_desc) {
-		double drain_usec = ((1.0 * tcfg.drain_lat)/tcfg.cycles_per_sec) * 1000000;
-
-		printf("Drain desc latency = %lu cycles | %f uSec\n", tcfg.drain_lat, drain_usec);
-	}
+	if (!tcfg.tval_secs)
+		print_results(&tcfg);
 
 err_ret:
 	test_free(&tcfg);

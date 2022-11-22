@@ -19,6 +19,7 @@
 #define ARRAY_SIZE(x)	(sizeof((x))/sizeof((x)[0]))
 #define MAX_COMP_RETRY	2000000000
 #define PTR_ADD(p, a)	{ p = (void *)((uintptr_t)(p) + (uintptr_t)a); }
+#define TIME_DELAY_SEC	4
 
 /* max number of operands e.g., dual cast - src1, dst1, dst2 */
 #define NUM_ADDR_MAX	3
@@ -246,7 +247,7 @@ struct tcfg {
 	uint64_t retry;				/* completion polling retries */
 	uint64_t mwait_cycles;			/* cycles spent in mwait */
 	float cpu_util;				/* cpu utilization needed to prep/submit descriptors */
-	int ops_rate;				/* operation rate - descriptors/sec */
+	int kops_rate;				/* operation rate - kilo operations/sec */
 	float latency;				/* latency for n descriptors */
 	float bw;				/* operation BW */
 	uint64_t retries_per_sec;		/* pollling retries the CPU can do per sec  */
@@ -285,6 +286,13 @@ struct tcfg {
 extern struct log_ctx log_ctx;
 
 void init_buffers(struct tcfg_cpu *tcpu);
+
+static inline bool
+is_work_rate_sub_test(struct tcfg *tcfg)
+{
+	return tcfg->op == DSA_OPCODE_NOOP &&
+		tcfg->misc_flags & (TEST_M64 | TEST_DB | TEST_M64MEM | TEST_ENQ | TEST_ENQMEM);
+}
 
 static inline void
 cldemote(volatile void *p)

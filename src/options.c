@@ -96,7 +96,7 @@ void print_usage(void)
 	"\t-F <flag_bits_to_clear:flag_bits_to_set:every_nth_desc>\n"
 	"\t                       e.g., -F 0xFFFFF7:0x8:4 to clear Addr2_TC flag and set RCR=1 on every 4th descriptor\n"
 	"\t-h                   ; Print this message\n"
-	"\t-i <iterations>      ; The number of iterations to run the test for\n"
+	"\t-i <iterations>      ; The number of iterations to run the test for, use i-1 for continuous run (periodic BW/Latency output)\n"
 	"\t-j                   ; deprecated parameter - default behavior\n"
 	"\t-k <CPU list>        ; List of CPUs (e.g., -k0, -k0,1,2,3, -k0-2, -k0-2,3)\n"
 	"\t-K <CPU/WQ list>     ; List of CPUs and associated WQ (e.g., [0,1]@dsa0,0,[2-3]@dsa0,1)\n"
@@ -601,6 +601,8 @@ fixup_options(struct tcfg *tc, struct parse_info *pi)
 		break;
 	}
 
+	if (tc->iter == -1 && tc->tval_secs == 0)
+		tc->tval_secs = TIME_DELAY_SEC;
 }
 
 static void
