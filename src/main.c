@@ -50,7 +50,7 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 	comp->status = 0;
 	__builtin_ia32_sfence();
 
-	if (tcfg->misc_flags & TEST_M64MEM) {
+	if (tcfg->misc_flags & (TEST_M64MEM | TEST_ENQMEM)) {
 		mdest = aligned_alloc(0x1000, 0x1000);
 		if (!mdest) {
 			tcpu->err = -ENOMEM;
@@ -61,14 +61,14 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 
 	cyc = rdtsc();
 
-	if (tcfg->misc_flags & (TEST_M64|TEST_M64MEM)) {
+	if (tcfg->misc_flags & (TEST_M64 | TEST_M64MEM)) {
 		char *dest = tcpu->wq;
 		char *orig_dest = dest;
 
 		if (mdest)
 			dest = mdest;
 
-		printf("Measure MOVDIR64B throughput\n");
+		printf("Measure MOVDIR64B throughput to %s\n", mdest ? "Memory" : "IO");
 		for (it = 0; it < max_iter; it++) {
 			movdir64b(desc, dest);
 			if (tcfg->var_mmio) {
@@ -84,7 +84,7 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 		if (mdest)
 			dest = mdest;
 
-		printf("Measure ENQCMD throughput\n");
+		printf("Measure ENQCMD throughput to %s\n", mdest ? "Memory" : "IO");
 		for (it = 0; it < max_iter; it++) {
 			enqcmd(desc, dest);
 			if (tcfg->var_mmio) {
