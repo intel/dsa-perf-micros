@@ -69,22 +69,28 @@ static int uio_cnt, vfio_cnt;
 
 #define WQ_NUM_MAX 128
 
+struct rte_idxd_version {
+	uint32_t	minor:8;
+	uint32_t	major:8;
+	uint32_t	rsvd:16;
+};
+
 /* General bar0 registers */
 struct rte_idxd_bar0 {
-	uint32_t __rte_cache_aligned version;    /* offset 0x00 */
-	uint64_t __rte_aligned(0x10) gencap;     /* offset 0x10 */
-	uint64_t __rte_aligned(0x10) wqcap;      /* offset 0x20 */
-	uint64_t __rte_aligned(0x10) grpcap;     /* offset 0x30 */
-	uint64_t __rte_aligned(0x08) engcap;     /* offset 0x38 */
-	uint64_t __rte_aligned(0x10) opcap;      /* offset 0x40 */
-	uint64_t __rte_aligned(0x20) offsets[2]; /* offset 0x60 */
-	uint32_t __rte_aligned(0x20) gencfg;     /* offset 0x80 */
-	uint32_t __rte_aligned(0x08) genctrl;    /* offset 0x88 */
-	uint32_t __rte_aligned(0x10) gensts;     /* offset 0x90 */
-	uint32_t __rte_aligned(0x08) intcause;   /* offset 0x98 */
-	uint32_t __rte_aligned(0x10) cmd;        /* offset 0xA0 */
-	uint32_t __rte_aligned(0x08) cmdstatus;  /* offset 0xA8 */
-	uint64_t __rte_aligned(0x20) swerror[4]; /* offset 0xC0 */
+	struct rte_idxd_version __rte_cache_aligned version;    /* offset 0x00 */
+	uint64_t __rte_aligned(0x10) gencap;                    /* offset 0x10 */
+	uint64_t __rte_aligned(0x10) wqcap;                     /* offset 0x20 */
+	uint64_t __rte_aligned(0x10) grpcap;                    /* offset 0x30 */
+	uint64_t __rte_aligned(0x08) engcap;                    /* offset 0x38 */
+	uint64_t __rte_aligned(0x10) opcap;                     /* offset 0x40 */
+	uint64_t __rte_aligned(0x20) offsets[2];                /* offset 0x60 */
+	uint32_t __rte_aligned(0x20) gencfg;                    /* offset 0x80 */
+	uint32_t __rte_aligned(0x08) genctrl;                   /* offset 0x88 */
+	uint32_t __rte_aligned(0x10) gensts;                    /* offset 0x90 */
+	uint32_t __rte_aligned(0x08) intcause;                  /* offset 0x98 */
+	uint32_t __rte_aligned(0x10) cmd;                       /* offset 0xA0 */
+	uint32_t __rte_aligned(0x08) cmdstatus;                 /* offset 0xA8 */
+	uint64_t __rte_aligned(0x20) swerror[4];                /* offset 0xC0 */
 };
 
 /* workqueue config is provided by array of uint32_t. */
@@ -103,10 +109,30 @@ struct rte_idxd_bar0 {
 #define WQ_STATE_SHIFT 30
 #define WQ_STATE_MASK 0x3
 
+struct rte_idxd_grpflags {
+	union {
+		struct {
+			uint64_t	tc_a:3;
+			uint64_t	tc_b:3;
+			uint64_t	rsvd1:1;
+			uint64_t	rdbflimit:1;
+			uint64_t	rdbfrsvd:8;
+			uint64_t	rsvd2:4;
+			uint64_t	rdbfalwd:8;
+			uint64_t	rsvd3:4;
+			uint64_t	workdescinproglimit:2;
+			uint64_t	rsvd4:2;
+			uint64_t	batchdescinproglimit:2;
+			uint64_t	rsvd5:26;
+		};
+		uint64_t value;
+	};
+};
+
 struct rte_idxd_grpcfg {
 	uint64_t grpwqcfg[4]  __rte_cache_aligned; /* 64-byte register set */
-	uint64_t grpengcfg;  /* offset 32 */
-	uint32_t grpflags;   /* offset 40 */
+	uint64_t grpengcfg;                        /* offset 32 */
+	struct rte_idxd_grpflags grpflags;         /* offset 40 */
 };
 
 #define GENSTS_DEV_STATE_MASK 0x03
@@ -420,6 +446,12 @@ init_pci_device(struct udev_info *udi, uint64_t resource[1])
 	for (i = 0; i < nb_groups; i++) {
 		pci->grp_regs[i].grpengcfg = 0;
 		pci->grp_regs[i].grpwqcfg[0] = 0;
+
+		/* use tc1 for best performance on spr/gnr*/
+		if (pci->regs->version.major <= 2) {
+			pci->grp_regs[0].grpflags.tc_a = 1;
+			pci->grp_regs[0].grpflags.tc_b = 1;
+		}
 	}
 	for (i = 0; i < nb_wqs; i++)
 		idxd_get_wq_cfg(pci, i)[0] = 0;
@@ -459,7 +491,7 @@ init_pci_device(struct udev_info *udi, uint64_t resource[1])
 		INFO("## Group %d", i);
 		INFO("    GRPWQCFG: %"PRIx64"\n", pci->grp_regs[i].grpwqcfg[0]);
 		INFO("    GRPENGCFG: %"PRIx64"\n", pci->grp_regs[i].grpengcfg);
-		INFO("    GRPFLAGS: %"PRIx32"\n", pci->grp_regs[i].grpflags);
+		INFO("    GRPFLAGS: %"PRIx64"\n", pci->grp_regs[i].grpflags.value);
 	}
 
 	/* enable the device itself */
