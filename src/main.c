@@ -70,7 +70,7 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 
 		printf("Measure MOVDIR64B throughput to %s\n", mdest ? "Memory" : "IO");
 		for (it = 0; it < max_iter; it++) {
-			movdir64b(desc, dest);
+			movdir64b(dest, desc);
 			if (tcfg->var_mmio) {
 				dest = dest + CACHE_LINE_SZ;
 				if (dest == orig_dest + 0x1000)
@@ -86,7 +86,7 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 
 		printf("Measure ENQCMD throughput to %s\n", mdest ? "Memory" : "IO");
 		for (it = 0; it < max_iter; it++) {
-			enqcmd(desc, dest);
+			enqcmd(dest, desc);
 			if (tcfg->var_mmio) {
 				dest = dest + CACHE_LINE_SZ;
 				if (dest == orig_dest + 0x1000)
