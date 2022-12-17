@@ -1,4 +1,7 @@
 #!/bin/bash
+
+# TODO: use accel-config to replace instances of `cat sysfs path`
+
 num_dsa=`ls /sys/bus/dsa/devices/  | grep dsa | wc -l`
 
 
@@ -8,10 +11,6 @@ init_common() {
 	NUM_ENGINES=`cat /sys/bus/dsa/devices/$dname/max_engines`
 	NUM_WQS=`cat /sys/bus/dsa/devices/$dname/max_work_queues`
 	DSA_CONFIG_PATH=/sys/bus/dsa/devices
-	DEV_DRV_PATH=/sys/bus/dsa/drivers/dsa
-	WQ_DRV_PATH=$DEV_DRV_PATH
-	[ -d /sys/bus/dsa/drivers/idxd ] && DEV_DRV_PATH=/sys/bus/dsa/drivers/idxd
-	[ -d /sys/bus/dsa/drivers/user ] && WQ_DRV_PATH=/sys/bus/dsa/drivers/user
 }
 
 reset_config() {
@@ -19,11 +18,11 @@ reset_config() {
 
 	for ((i = 0; i < $NUM_ENGINES ; i++ ))
 	do
-		echo -1 > $DSA_CONFIG_PATH/$dname/engine$did.$i/group_id
+		accel-config config-engine $dname/engine$did.$i --group-id=-1
 	done
 	for ((i = 0; i < $NUM_WQS ; i++ ))
 	do
-		echo 0 > $DSA_CONFIG_PATH/$dname/wq$did.$i/size
+		accel-config config-wq $dname/wq$did.$i --wq-size=0
 	done
 }
 
@@ -36,7 +35,7 @@ assign_free_engine() {
 	do
 		if (( `cat $DSA_CONFIG_PATH/$dname/engine$did.$i/group_id` == -1 ))
 		then
-			echo $gid > $DSA_CONFIG_PATH/$dname/engine$did.$i/group_id
+			accel-config config-engine $dname/engine$did.$i --group-id=$gid
 			return 0
 		fi
 	done
@@ -72,10 +71,10 @@ unbind() {
 	0)
 		for ((i = 0; i < $NUM_WQS ; i++ ))
 		do
-			echo wq$did.$i > $WQ_DRV_PATH/unbind 2>/dev/null && echo disabled wq$did.$i
+			accel-config disable-wq $dname/wq$did.$i 2>/dev/null && echo disabled $dname/wq$did.$i
 		done
 
-		echo $dname  > $DEV_DRV_PATH/unbind 2>/dev/null && echo disabled $dname
+		accel-config disable-device $dname 2>/dev/null && echo disabled $dname
 		reset_config $did
 
 		;;
@@ -87,10 +86,10 @@ unbind() {
 
 		for i in {0..7}
 		do
-			[[ `cat /sys/bus/dsa/devices/$dname/wq$d\.$i/state` == "enabled" ]] && sudo accel-config disable-wq $dname/wq$d\.$i
+			[[ `cat /sys/bus/dsa/devices/$dname/wq$d\.$i/state` == "enabled" ]] && accel-config disable-wq $dname/wq$d\.$i
 		done
 
-		[[ `cat /sys/bus/dsa/devices/$dname/state` == "enabled" ]] && sudo accel-config disable-device $dname
+		[[ `cat /sys/bus/dsa/devices/$dname/state` == "enabled" ]] && accel-config disable-device $dname
 		reset_config $d
 
 		;;
@@ -116,23 +115,13 @@ configure() {
 
 		for ((i = 0; i < $num_wq ; i++, q++ ))
 		do
-			[ -d $DSA_CONFIG_PATH/$dname/wq$did.$q/ ] && wq_dir=$DSA_CONFIG_PATH/$dname/wq$did.$q/
-			[ -d $DSA_CONFIG_PATH/wq$did.$q/ ] && wq_dir=$DSA_CONFIG_PATH/wq$did.$q/
-
-			echo 0 > $wq_dir/block_on_fault
-			echo $grp_id > $wq_dir/group_id
-			echo $mode > $wq_dir/mode
-			echo 10 > $wq_dir/priority
-			echo $size > $wq_dir/size
-			[[ $mode == shared ]] && echo $size > $wq_dir/threshold
-			echo "user" > $wq_dir/type
-			[ -f $wq_dir/driver_name ] && echo "user" > $wq_dir/driver_name
-			echo "app$i"  > $wq_dir/name
+			accel-config config-wq $dname/wq$did.$q --group-id=$grp_id --block-on-fault=0 --mode=$mode --priority=10 --wq-size=$size --type=user --name=app$i --driver-name=user
+			[[ $mode == shared ]] && accel-config config-wq $dname/wq$did.$q --threshold=$size
 		done
 		;;
 
 	1)
-		sudo accel-config load-config -c $config
+		accel-config load-config -c $config
 		;;
 
 	*)
@@ -143,27 +132,14 @@ configure() {
 
 bind() {
 	# start devices
-	case $1 in
-	0)
-		echo $dname  > $DEV_DRV_PATH/bind && echo enabled $dname
+	accel-config enable-device  $dname
+	readarray -d a  -t tmp <<< "$dname"
+	d=`echo ${tmp[1]}`
 
-		for i in {0..7}
-		do
-			[[ `cat /sys/bus/dsa/devices/$dname/wq$did\.$i/size` -ne "0" ]] && echo wq$did.$i > $WQ_DRV_PATH/bind && echo enabled wq$did.$i
-		done
-		;;
-	1)
-		sudo accel-config enable-device  $dname
-
-		for i in {0..7}
-		do
-			[[ `cat /sys/bus/dsa/devices/$dname/wq$d\.$i/size` -ne "0" ]] && sudo accel-config enable-wq $dname/wq$d\.$i
-		done
-		;;
-	*)
-		echo "Unknown"
-		;;
-	esac
+	for i in {0..7}
+	do
+		[[ `cat /sys/bus/dsa/devices/$dname/wq$d\.$i/size` -ne "0" ]] && accel-config enable-wq $dname/wq$d\.$i
+	done
 }
 
 do_config_file() {
@@ -174,7 +150,7 @@ do_config_file() {
 
 	unbind 1
 	configure 1
-	bind 1
+	bind
 
 	exit 0
 }
@@ -281,7 +257,7 @@ do_options() {
 		fi
 
 		[[ "$do_cfg" == "1" ]] && configure 0
-		[[ "$do_bind" == "1" ]] && bind 0
+		[[ "$do_bind" == "1" ]] && bind
 	else
 		unbind 0
 	fi
