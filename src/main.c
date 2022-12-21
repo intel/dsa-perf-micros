@@ -26,7 +26,6 @@
 #include "util.h"
 #include "log.h"
 
-#define CACHE_LINE_SZ	64
 #define INF_LOOP_SHOW_STATS 1000000
 
 struct log_ctx log_ctx;
@@ -72,7 +71,7 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 		for (it = 0; it < max_iter; it++) {
 			movdir64b(dest, desc);
 			if (tcfg->var_mmio) {
-				dest = dest + CACHE_LINE_SZ;
+				dest = dest + CACHE_LINE_SIZE;
 				if (dest == orig_dest + 0x1000)
 					dest = orig_dest;
 			}
@@ -88,7 +87,7 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 		for (it = 0; it < max_iter; it++) {
 			enqcmd(dest, desc);
 			if (tcfg->var_mmio) {
-				dest = dest + CACHE_LINE_SZ;
+				dest = dest + CACHE_LINE_SIZE;
 				if (dest == orig_dest + 0x1000)
 					dest = orig_dest;
 			}
@@ -146,7 +145,7 @@ comp_rec(struct tcfg_cpu *tcpu, int r)
 	p = (uintptr_t) (tcpu->tcfg->batch_sz == 1 ? tcpu->comp :
 						tcpu->bcomp);
 
-	p += r * comp_rec_size(tcpu);
+	p += r * comp_rec_cache_aligned_size(tcpu);
 
 	return (struct dsa_completion_record *)p;
 }
@@ -270,7 +269,8 @@ print_batch_comp_err(struct tcfg_cpu *tcpu, int d)
 	int i;
 	struct dsa_hw_desc *desc = tcpu->bdesc + d;
 	struct tcfg *tcfg = tcpu->tcfg;
-	size_t comp_off = d * tcfg->batch_sz * comp_rec_size(tcpu);
+	size_t cs = comp_rec_cache_aligned_size(tcpu);
+	size_t comp_off = d * tcfg->batch_sz * cs;
 	struct dsa_completion_record *comp;
 
 	comp = tcpu->comp;
@@ -282,7 +282,7 @@ print_batch_comp_err(struct tcfg_cpu *tcpu, int d)
 			print_status(comp->status & 0x3f, comp);
 			dump_desc(&tcpu->desc[d * tcfg->batch_sz + i]);
 		}
-		PTR_ADD(comp, comp_rec_size(tcpu));
+		PTR_ADD(comp, cs);
 	}
 }
 
@@ -379,7 +379,7 @@ check_result_one(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 	uint32_t k = desc->opcode == DSA_OPCODE_BATCH ? desc - tcpu->bdesc :
 							desc - tcpu->desc;
 
-	PTR_ADD(comp, k * comp_rec_size(tcpu));
+	PTR_ADD(comp, k * comp_rec_cache_aligned_size(tcpu));
 
 	switch (desc->opcode) {
 

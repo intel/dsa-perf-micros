@@ -665,6 +665,7 @@ test_prep_batch_desc(struct tcfg_cpu *tcpu)
 	struct tcfg *tcfg;
 	struct dsa_hw_desc *desc;
 	int i;
+	void *bcomp = &tcpu->bcomp[0];
 
 	tcfg = tcpu->tcfg;
 	if (tcfg->batch_sz <= 1)
@@ -678,7 +679,8 @@ test_prep_batch_desc(struct tcfg_cpu *tcpu)
 					tcfg->nb_bufs - i * tcfg->batch_sz);
 		desc->desc_list_addr = rte_mem_virt2iova(&tcpu->desc[i * tcfg->batch_sz]);
 		desc->flags = IDXD_OP_FLAG_CRAV | IDXD_OP_FLAG_RCR;
-		desc->completion_addr = rte_mem_virt2iova(&tcpu->bcomp[i]);
+		desc->completion_addr = rte_mem_virt2iova(bcomp);
+		PTR_ADD(bcomp, comp_rec_cache_aligned_size(tcpu));
 	}
 }
 
@@ -773,7 +775,7 @@ test_prep_desc(struct tcfg_cpu *tcpu)
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		char *c;
 
-		c = (char *)tcpu->comp + i * comp_rec_size(tcpu);
+		c = (char *)tcpu->comp + i * comp_rec_cache_aligned_size(tcpu);
 		pd[i].completion_addr = rte_mem_virt2iova(c);
 
 		/* mmap(MAP_POPULATE) but generates a fault on write after fork */

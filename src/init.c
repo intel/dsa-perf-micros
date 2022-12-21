@@ -117,6 +117,12 @@ static void
 alloc_buf_offsets(struct tcfg *tcfg)
 {
 	int i, j;
+	size_t cs = sizeof(struct iax_completion_record);
+
+	if (cs < sizeof(struct dsa_completion_record))
+		cs = sizeof(struct dsa_completion_record);
+
+	cs = align(cs, CACHE_LINE_SIZE);
 
 	INFO("Offsets\n");
 	for (i = 0; i < tcfg->nb_cpus; i++) {
@@ -131,12 +137,17 @@ alloc_buf_offsets(struct tcfg *tcfg)
 				tcpu->bdesc = alloc_numa_offset(tcfg,
 					tcfg->nb_desc * sizeof(tcpu->bdesc[0]), node, 0);
 
-			/* *2 for IAX completion desc size */
-			tcpu->comp = alloc_numa_offset(tcfg,
-					tcfg->nb_bufs * sizeof(tcpu->comp[0]) *  2, node, 0);
+			/*
+			 * We allocate completion records on cacheline boundaries for
+			 * better performance
+			 */
+			tcpu->comp = alloc_numa_offset(tcfg, tcfg->nb_bufs * cs,
+						node, 0);
+
 			if (tcfg->batch_sz > 1)
 				tcpu->bcomp = alloc_numa_offset(tcfg,
-					tcfg->nb_desc * sizeof(tcpu->bcomp[0]), node, 0);
+								tcfg->nb_desc * cs,
+								node, 0);
 			INFO("comp %p bcomp %p desc %p bdesc %p\n",
 				tcpu->comp, tcpu->bcomp, tcpu->desc, tcpu->bdesc);
 		}
@@ -405,7 +416,8 @@ test_init_dmap(struct tcfg_cpu *tcpu)
 	}
 
 	if (tcfg->batch_sz > 1) {
-		tcpu->err = dmap(fd, tcpu->bcomp, ALIGN(tcfg->nb_desc * sizeof(tcpu->bcomp[0])));
+		tcpu->err = dmap(fd, tcpu->bcomp,
+				ALIGN(tcfg->nb_desc * comp_rec_cache_aligned_size(tcpu)));
 		if (tcpu->err) {
 			err = tcpu->err;
 			goto unmap_comp;
@@ -432,7 +444,7 @@ test_init_dmap(struct tcfg_cpu *tcpu)
 	}
 
 	if (tcfg->batch_sz > 1)
-		dmap(fd, tcpu->bcomp, ALIGN(tcfg->nb_desc * sizeof(tcpu->bcomp[0])));
+		dmap(fd, tcpu->bcomp, ALIGN(tcfg->nb_desc * comp_rec_cache_aligned_size(tcpu)));
 
  unmap_comp:
 	dunmap(fd, tcpu->comp, ALIGN(tcfg->nb_bufs * sizeof(tcpu->comp[0]) * 2));
@@ -518,7 +530,7 @@ dunmap_per_cpu(struct tcfg_cpu *tcpu)
 		dunmap(fd, tcpu->bdesc, ALIGN(tcfg->nb_desc * sizeof(tcpu->bdesc[0])));
 
 	dunmap(fd, tcpu->comp, ALIGN(tcfg->nb_bufs * sizeof(tcpu->comp[0]) * 2));
-	dunmap(fd, tcpu->bcomp, ALIGN(tcfg->nb_desc * sizeof(tcpu->bcomp[0])));
+	dunmap(fd, tcpu->bcomp, ALIGN(tcfg->nb_desc * comp_rec_cache_aligned_size(tcpu)));
 
 	for (i = 0; i < tcfg->op_info->nb_buf; i++) {
 		uint64_t sz = tcfg->bstride_arr[i] * tcfg->nb_bufs;

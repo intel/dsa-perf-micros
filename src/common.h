@@ -334,13 +334,23 @@ clwb(char *buf, uint64_t len)
 		clwb_asm(b);
 }
 
-static inline int
-comp_rec_size(struct tcfg_cpu *tcpu)
+static inline uint64_t
+align(uint64_t v, uint64_t alignto)
 {
+	return  (v + alignto - 1) & ~(alignto - 1);
+}
+
+#define CACHE_LINE_SIZE	64
+
+static inline uint64_t
+comp_rec_cache_aligned_size(struct tcfg_cpu *tcpu)
+{
+	uint64_t sz = tcpu->wq_info->dev_type == DSA ? sizeof(struct dsa_completion_record) :
+						sizeof(struct iax_completion_record);
 	if (!tcpu->wq_info)
 		return 0;
 
-	return tcpu->wq_info->dev_type == DSA ? 32 : 64;
+	return align(sz, CACHE_LINE_SIZE);
 }
 
 static inline uint32_t
@@ -446,12 +456,6 @@ poll_comp_common(struct dsa_completion_record *comp,
 		*poll_cnt = lcnt;
 
 	return !(comp->status == DSA_COMP_SUCCESS);
-}
-
-static inline uint64_t
-align(uint64_t v, uint64_t alignto)
-{
-	return  (v + alignto - 1) & ~(alignto - 1);
 }
 
 static inline uint64_t
