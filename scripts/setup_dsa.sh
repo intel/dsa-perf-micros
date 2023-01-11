@@ -81,8 +81,7 @@ unbind() {
 
 	1)
 
-		readarray -d a  -t tmp <<< "$dname"
-		d=`echo ${tmp[1]}`
+		d=$(echo $dname | tr -cd '[[:digit:]]')
 
 		for i in {0..7}
 		do
@@ -133,8 +132,7 @@ configure() {
 bind() {
 	# start devices
 	accel-config enable-device  $dname
-	readarray -d a  -t tmp <<< "$dname"
-	d=`echo ${tmp[1]}`
+	d=$(echo $dname | tr -cd '[[:digit:]]')
 
 	for i in {0..7}
 	do
