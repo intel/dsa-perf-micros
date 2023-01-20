@@ -692,7 +692,7 @@ test_prep_desc(struct tcfg_cpu *tcpu)
 	struct tcfg *tcfg = tcpu->tcfg;
 	unsigned int i;
 	struct dsa_hw_desc desc = {}, *pd;
-	uint32_t resv_flags[DSA_OPCODE_CFLUSH] = {
+	uint32_t resv_flags[DSA_OPCODE_CFLUSH + 1] = {
 			[DSA_OPCODE_NOOP] = WR_FLAGS,
 			[DSA_OPCODE_COMPARE] = WR_FLAGS,
 			[DSA_OPCODE_COMPVAL] = WR_FLAGS,
