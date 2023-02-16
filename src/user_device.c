@@ -259,6 +259,57 @@ pci_vfio_enable_bus_memory(int dev_fd)
 }
 
 static int
+exec_cmd(char *cmd, uint32_t *v)
+{
+	FILE *fp;
+	int rc;
+
+	fp = popen(cmd, "r");
+	if (!fp) {
+		ERR("popen failed\n");
+		return -1;
+	}
+
+	rc = v ? fscanf(fp, "%x", v)  == 1 ? 0 : -1 : 0;
+	pclose(fp);
+
+	return rc;
+}
+
+#define TPH_CTL "168"
+
+static int
+read_tph(char *bdf, uint32_t *tph)
+{
+	char *cmd;
+	int rc;
+
+	rc = asprintf(&cmd, "setpci -s %s "TPH_CTL".l", bdf);
+	if (rc < 0)
+		return -1;
+	rc = exec_cmd(cmd, tph);
+	free(cmd);
+
+	return rc;
+}
+
+static int
+write_tph(char *bdf, int32_t v)
+{
+	char *cmd;
+	int rc;
+
+	rc = asprintf(&cmd, "setpci -s %s "TPH_CTL".l=0x%x", bdf, v);
+	if (rc < 0)
+		return -1;
+
+	rc = exec_cmd(cmd, NULL);
+	free(cmd);
+
+	return rc;
+}
+
+static int
 uio_setup_device(char *bdf)
 {
 	char *cmd;
@@ -1154,6 +1205,45 @@ find_free_wq_info(const void *key, const void *p2)
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
+static int
+common_init(int uio_cnt, struct udev_info *pd)
+{
+	uint32_t tph, tmp;
+	int rc;
+
+	rc = read_tph(pd->bdf, &tph);
+	if (rc == -1) {
+		ERR("Error reading tph\n");
+		return -EIO;
+	}
+
+	if (!tph) {
+		ERR("TPH capability is disabled\n");
+		return -EINVAL;
+	}
+
+	rc = uio_cnt ? uio_init(pd) : vfio_init(pd);
+	if (rc)
+		return rc;
+
+	rc = read_tph(pd->bdf, &tmp);
+	if (rc == -1) {
+		ERR("Error reading tph\n");
+		return -EIO;
+	}
+
+	if (tmp == tph)
+		return 0;
+
+	rc = write_tph(pd->bdf, tph);
+	if (rc == -1) {
+		ERR("Failed to write tph value\n");
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static struct ud_wq_info *
 ud_wq_find(char *dname, int wq_id, int shared, int numa_node)
 {
@@ -1199,11 +1289,14 @@ ud_wq_find(char *dname, int wq_id, int shared, int numa_node)
 			wq_id = __builtin_ffs(pd->wq_avail) - 1;
 
 		if (!pd->init_done) {
-			rc = uio_cnt ? uio_init(pd) : vfio_init(pd);
-			if (!rc)
-				pd->init_done = true;
-			if (dname && rc)
-				break;
+			rc = common_init(uio_cnt, pd);
+			if (rc) {
+				if (dname)
+					break;
+				else
+					continue;
+			}
+			pd->init_done = true;
 		}
 
 		idxd_pci_dev_command(pd->pci, idxd_enable_wq);
