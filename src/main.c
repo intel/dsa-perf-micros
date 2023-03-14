@@ -62,10 +62,11 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 
 	if (tcfg->misc_flags & (TEST_M64 | TEST_M64MEM)) {
 		char *dest = tcpu->wq;
-		char *orig_dest = dest;
+		char *orig_dest;
 
 		if (mdest)
 			dest = mdest;
+		orig_dest = dest;
 
 		printf("Measure MOVDIR64B throughput to %s\n", mdest ? "Memory" : "IO");
 		for (it = 0; it < max_iter; it++) {
@@ -78,10 +79,11 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 		}
 	} else if (tcfg->misc_flags & (TEST_ENQ | TEST_ENQMEM)) {
 		char *dest = tcpu->wq;
-		char *orig_dest = dest;
+		char *orig_dest;
 
 		if (mdest)
 			dest = mdest;
+		orig_dest = dest;
 
 		printf("Measure ENQCMD throughput to %s\n", mdest ? "Memory" : "IO");
 		for (it = 0; it < max_iter; it++) {
