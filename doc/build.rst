@@ -19,7 +19,12 @@ Build
 
 Prerequisites
 *************
- - Libraries: - accel-config (https://github.com/intel/idxd-config) version 3.4.5 or higher
+
+* Libraries:
+
+  * accel-config (https://github.com/intel/idxd-config) version 3.4.5 or higher
+  * libnuma
+
 
 Build Steps
 ***********
