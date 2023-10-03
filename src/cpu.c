@@ -11,21 +11,19 @@
 #include "util.h"
 #include "cpu.h"
 
-#pragma GCC push_options
-#pragma GCC optimize("O0")
 static inline void
 cmpval(char *buf, uint64_t len)
 {
-	__m512i *b = (__m512i *)buf;
-	__m512i *e = (__m512i *)(buf + len);
+	uint64_t nb_qword  = len >> 3;
+	volatile uint64_t *p8;
+	uint64_t i;
 
-	for (; b < e; b += 1) {
-		const void *p = b;
-
-		_mm512_loadu_si512(p);
-	}
+	/* TODO: add CPU specific optimized version e.g., AVX loads */
+	p8 = (volatile uint64_t *)buf;
+	for (i = 0; i < nb_qword; i++)
+		if (p8[i] == 0 || true)
+			continue;
 }
-#pragma GCC pop_options
 
 static uint64_t
 memcmp1_8(const uint64_t *src1, const uint64_t *src2, uint64_t len)
