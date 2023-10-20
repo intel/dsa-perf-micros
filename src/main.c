@@ -30,21 +30,35 @@
 
 struct log_ctx log_ctx;
 
+static inline void work_sub_rate_test_iter(struct tcfg_cpu *tcpu, void *dest,
+				struct dsa_hw_desc *desc)
+{
+	struct tcfg *tcfg = tcpu->tcfg;
+	volatile uint32_t *wq_ptr;
+
+	if (tcfg->misc_flags & (TEST_M64 | TEST_M64MEM))
+		movdir64b(dest, desc);
+	else if (tcfg->misc_flags & (TEST_ENQ | TEST_ENQMEM))
+		enqcmd(dest, desc);
+	else if (tcfg->misc_flags & TEST_DB) {
+		wq_ptr = dest;
+		/* UC doorbell */
+		*(wq_ptr) = 1;
+	}
+}
+
 static inline void
 work_sub_rate_test(struct tcfg_cpu *tcpu)
 {
 	struct tcfg *tcfg = tcpu->tcfg;
-	struct dsa_hw_desc *desc;
 	struct dsa_completion_record *comp;
 	uint32_t it;
 	uint64_t cyc;
-	char *wq_ptr;
 	uint32_t max_iter = tcfg->iter;
-	char *mdest;
+	char *mdest, *dest, *orig_dest;
 
 	printf("%s using nop\n", __func__);
 
-	desc = tcpu->desc;
 	comp = tcpu->comp;
 	comp->status = 0;
 	__builtin_ia32_sfence();
@@ -58,54 +72,26 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 	} else
 		mdest = NULL;
 
+	dest = mdest ? mdest : tcpu->wq;
+	orig_dest = dest;
+
+	if (tcfg->misc_flags & (TEST_M64 | TEST_M64MEM))
+		printf("Measure MOVDIR64B throughput to %s\n", mdest ? "Memory" : "IO");
+	else if (tcfg->misc_flags & (TEST_ENQ | TEST_ENQMEM))
+		printf("Measure ENQCMD throughput to %s\n", mdest ? "Memory" : "IO");
+	else
+		printf("Measure UC Doorbell write throughput\n");
+
 	cyc = rdtsc();
 
-	if (tcfg->misc_flags & (TEST_M64 | TEST_M64MEM)) {
-		char *dest = tcpu->wq;
-		char *orig_dest;
-
-		if (mdest)
-			dest = mdest;
-		orig_dest = dest;
-
-		printf("Measure MOVDIR64B throughput to %s\n", mdest ? "Memory" : "IO");
-		for (it = 0; it < max_iter; it++) {
-			movdir64b(dest, desc);
-			if (tcfg->var_mmio) {
-				dest = dest + CACHE_LINE_SIZE;
-				if (dest == orig_dest + 0x1000)
-					dest = orig_dest;
-			}
+	for (it = 0; it < max_iter; it++) {
+		if (tcfg->var_mmio) {
+			dest = dest + CACHE_LINE_SIZE;
+			if (dest == orig_dest + 0x1000)
+				dest = orig_dest;
 		}
-	} else if (tcfg->misc_flags & (TEST_ENQ | TEST_ENQMEM)) {
-		char *dest = tcpu->wq;
-		char *orig_dest;
 
-		if (mdest)
-			dest = mdest;
-		orig_dest = dest;
-
-		printf("Measure ENQCMD throughput to %s\n", mdest ? "Memory" : "IO");
-		for (it = 0; it < max_iter; it++) {
-			enqcmd(dest, desc);
-			if (tcfg->var_mmio) {
-				dest = dest + CACHE_LINE_SIZE;
-				if (dest == orig_dest + 0x1000)
-					dest = orig_dest;
-			}
-		}
-	} else if (tcfg->misc_flags & TEST_DB) {
-		printf("Measure UC Doorbell write throughput\n");
-		wq_ptr = tcpu->wq;
-		for (it = 0; it < max_iter; it++) {
-			/* UC doorbell */
-			*((volatile uint32_t *)wq_ptr) = 1;
-			if (tcfg->var_mmio) {
-				wq_ptr = wq_ptr + 64;
-				if (wq_ptr == ((char *)tcpu->wq + 0x1000))
-					wq_ptr  = tcpu->wq;
-			}
-		}
+		work_sub_rate_test_iter(tcpu, dest, tcpu->desc);
 	}
 
 	tcpu->cycles += rdtsc() - cyc;
