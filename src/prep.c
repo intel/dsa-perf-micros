@@ -23,69 +23,57 @@ uint16_t dif_block_len(uint8_t idx)
 static void
 init_memmove_desc_addr(struct tcfg_cpu *tcpu, int begin, int count)
 {
-	uint64_t off = tcpu->tcfg->bstride * begin;
 	struct dsa_hw_desc *d = &tcpu->desc[begin];
 	int i;
 
-	for (i = 0; i < count; i++, d++) {
-		d->src_addr = rte_mem_virt2iova(tcpu->src + off);
-		d->dst_addr = rte_mem_virt2iova(tcpu->dst + off);
-		off = off + tcpu->tcfg->bstride;
+	for (i = begin; i < begin + count; i++, d++) {
+		d->src_addr = rte_mem_virt2iova(tcpu->src[i]);
+		d->dst_addr = rte_mem_virt2iova(tcpu->dst[i]);
 	}
 }
 
 static void
 init_ap_delta_addr(struct tcfg_cpu *tcpu, int begin, int count)
 {
-	struct tcfg *tcfg = tcpu->tcfg;
 	struct dsa_hw_desc *d = &tcpu->desc[begin];
-	char *src = (char *)tcpu->delta;
-	char *dst = tcpu->dst;
-	uint64_t src_stride = tcfg->delta_rec_size;
-	uint64_t dst_stride = tcfg->bstride;
-	uint64_t src_off = src_stride * begin;
-	uint64_t dst_off = dst_stride * begin;
+	char **dst = tcpu->dst;
 	int i;
 
 	for (i = 0; i < count; i++, d++) {
-		d->src_addr = rte_mem_virt2iova(src + src_off + i * src_stride);
-		d->dst_addr = rte_mem_virt2iova(dst + dst_off + i * dst_stride);
+		d->src_addr = rte_mem_virt2iova(tcpu->delta[begin + i]);
+		d->dst_addr = rte_mem_virt2iova(dst[begin + i]);
 	}
 }
 
 static void
 init_dst_addr(struct tcfg_cpu *tcpu, int begin, int count)
 {
-	uint64_t off = tcpu->tcfg->bstride * begin;
 	struct dsa_hw_desc *d = &tcpu->desc[begin];
 	int i;
 
-	for (i = 0; i < count; i++, d++)
-		d->dst_addr = rte_mem_virt2iova(tcpu->dst + off + i * tcpu->tcfg->bstride);
+	for (i = begin; i < begin + count; i++, d++)
+		d->dst_addr = rte_mem_virt2iova(tcpu->dst[i]);
 }
 
 static void
 init_src_addr(struct tcfg_cpu *tcpu, int begin, int count)
 {
-	uint64_t off = tcpu->tcfg->bstride * begin;
 	struct dsa_hw_desc *d = &tcpu->desc[begin];
 	int i;
 
-	for (i = 0; i < count; i++, d++)
-		d->src_addr = rte_mem_virt2iova(tcpu->src + off + i * tcpu->tcfg->bstride);
+	for (i = begin; i < begin + count; i++, d++)
+		d->src_addr = rte_mem_virt2iova(tcpu->src[i]);
 }
 
 static void
 init_src_addrs(struct tcfg_cpu *tcpu, int begin, int count)
 {
 	struct dsa_hw_desc *d = &tcpu->desc[begin];
-	uint32_t off = tcpu->tcfg->bstride * begin;
 	int i;
 
-	for (i = 0; i < count; i++, d++) {
-		d->src_addr = rte_mem_virt2iova(tcpu->src1 + off);
-		d->src2_addr = rte_mem_virt2iova(tcpu->src2 + off);
-		off = off + tcpu->tcfg->bstride;
+	for (i = begin; i < begin + count; i++, d++) {
+		d->src_addr = rte_mem_virt2iova(tcpu->src1[i]);
+		d->src2_addr = rte_mem_virt2iova(tcpu->src2[i]);
 	}
 }
 
@@ -93,15 +81,12 @@ static void
 init_dc_addr(struct tcfg_cpu *tcpu, int begin, int count)
 {
 	struct dsa_hw_desc *d = &tcpu->desc[begin];
-	struct tcfg *tcfg = tcpu->tcfg;
-	uint32_t off = tcfg->bstride * begin;
 	int i;
 
-	for (i = 0; i < count; i++, d++) {
-		d->src_addr = rte_mem_virt2iova(tcpu->src + off);
-		d->dst_addr = rte_mem_virt2iova(tcpu->dst1 + off);
-		d->dest2 = rte_mem_virt2iova(tcpu->dst2 + off);
-		off = off + tcpu->tcfg->bstride;
+	for (i = begin; i < begin + count; i++, d++) {
+		d->src_addr = rte_mem_virt2iova(tcpu->src[i]);
+		d->dst_addr = rte_mem_virt2iova(tcpu->dst1[i]);
+		d->dest2 = rte_mem_virt2iova(tcpu->dst2[i]);
 	}
 }
 
@@ -109,20 +94,14 @@ static void
 init_dif_addr(struct tcfg_cpu *tcpu, int begin, int count)
 {
 	struct dsa_hw_desc *d = &tcpu->desc[begin];
-	struct tcfg *tcfg = tcpu->tcfg;
-	uint32_t off_src, off_dst;
 	uint32_t i;
 
-	off_src = begin * tcfg->bstride_arr[0];
-	off_dst = begin * tcfg->bstride_arr[1];
 
 	for (i = 0; i < count; i++, d++) {
-		d->src_addr = rte_mem_virt2iova(tcpu->src + off_src);
-		off_src += tcfg->bstride_arr[0];
+		d->src_addr = rte_mem_virt2iova(tcpu->src[begin + i]);
 		if (!tcpu->dst)
 			continue;
-		d->dst_addr = rte_mem_virt2iova(tcpu->dst + off_dst);
-		off_dst += tcfg->bstride_arr[1];
+		d->dst_addr = rte_mem_virt2iova(tcpu->dst[begin + i]);
 	}
 }
 
@@ -133,20 +112,24 @@ init_desc_addr(struct tcfg_cpu *tcpu, int begin, int count)
 
 	case DSA_OPCODE_MEMMOVE:
 	case DSA_OPCODE_COPY_CRC:
+	case DSA_OPCODE_RS_IPASID_MEMCOPY:
 		init_memmove_desc_addr(tcpu, begin, count);
 		break;
 
 	case DSA_OPCODE_MEMFILL:
+	case DSA_OPCODE_RS_IPASID_FILL:
 		init_dst_addr(tcpu, begin, count);
 		break;
 
 	case DSA_OPCODE_CRCGEN:
 	case DSA_OPCODE_COMPVAL:
+	case DSA_OPCODE_RS_IPASID_COMPVAL:
 		init_src_addr(tcpu, begin, count);
 		break;
 
 	case DSA_OPCODE_COMPARE:
 	case DSA_OPCODE_CR_DELTA:
+	case DSA_OPCODE_RS_IPASID_COMPARE:
 		init_src_addrs(tcpu, begin, count);
 		break;
 
@@ -162,6 +145,7 @@ init_desc_addr(struct tcfg_cpu *tcpu, int begin, int count)
 	case DSA_OPCODE_DIF_STRP:
 	case DSA_OPCODE_DIF_INS:
 	case DSA_OPCODE_DIF_UPDT:
+	case DSA_OPCODE_DIX_GEN:
 		init_dif_addr(tcpu, begin, count);
 		break;
 
@@ -226,6 +210,24 @@ dsa_calculate_crc_t10dif(unsigned char *buffer, size_t len, uint8_t flags)
 }
 
 static void
+init_inter_domain_params(struct tcfg_cpu *tcpu)
+{
+	struct dsa_hw_desc *descs = tcpu->desc;
+	struct tcfg *tcfg = tcpu->tcfg;
+	uint32_t i;
+
+	for (i = 0; i < tcfg->nb_bufs; i++) {
+		descs[i].src_pasid_hndl = tcpu->id_handle[0] ?
+						tcpu->id_handle[0][i % tcfg->id_window_cnt] : 0;
+		descs[i].dest_pasid_hndl = tcpu->id_handle[1] ?
+						tcpu->id_handle[1][i % tcfg->id_window_cnt] : 0;
+
+		/* Flags[16:17] Use Alternate src/dst pasid*/
+		descs[i].flags |= tcpu->tcfg->id_oper << 16;
+	}
+}
+
+static void
 prep_dsa_memmove(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 {
 	struct tcfg *tcfg = tcpu->tcfg;
@@ -262,6 +264,7 @@ prep_dsa_memfill(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 
 	memset(&tcfg->fill, TEST_CHAR, sizeof(tcfg->pat));
 	desc->pattern = tcfg->fill;
+	desc->pattern_upper = tcfg->flags_smask & FILL_16_PATTERN_SIZE ? tcfg->fill : 0;
 	prep_dsa_dst_only(tcpu, desc);
 }
 
@@ -309,8 +312,7 @@ prep_dsa_cr_delta(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 {
 	struct dsa_hw_desc *descs = tcpu->desc;
 	struct tcfg *tcfg = tcpu->tcfg;
-	uint32_t delta_rec_size = tcfg->delta_rec_size;
-	struct delta_rec *dptr;
+	struct delta_rec **dptr;
 	uint32_t i;
 
 	init_buffers(tcpu);
@@ -325,8 +327,7 @@ prep_dsa_cr_delta(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
 		init_src_addrs(tcpu, i, 1);
-		descs[i].delta_addr = rte_mem_virt2iova(dptr);
-		dptr +=  delta_rec_size/sizeof(struct delta_rec);
+		descs[i].delta_addr = rte_mem_virt2iova(dptr[i]);
 	}
 }
 
@@ -451,6 +452,7 @@ dsa_prep_dif_flags(int op, int blk_idx, int dif_flags, struct dsa_hw_desc *hw,
 		break;
 
 	case DSA_OPCODE_DIF_INS:
+	case DSA_OPCODE_DIX_GEN:
 		hw->ins_app_tag_seed = app_tag;
 		hw->ins_ref_tag_seed = ref_tag;
 		hw->ins_app_tag_mask = 0xffff;
@@ -491,38 +493,33 @@ prep_dsa_dif(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 {
 	struct dsa_hw_desc *descs = tcpu->desc;
 	struct tcfg *tcfg = tcpu->tcfg;
-	char *src;
+	char **src;
 	uint32_t i;
 	const uint32_t ref_tag = 0x87654321;
 	const uint16_t app_tag = 0xdcba;
 	int dif_flags = 0;
-	uint32_t off_src;
 
-	off_src = tcfg->bstride_arr[0];
 	src = tcpu->src;
 	dsa_prep_dif_flags(tcfg->op, tcfg->bl_idx, dif_flags, desc, app_tag, ref_tag);
 
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		descs[i] = *desc;
-		if (tcfg->op != DSA_OPCODE_DIF_INS)
-			prepare_dif_buf(tcfg, src, 1, desc->src_dif_flags, dif_flags, ref_tag, app_tag);
+		if (tcfg->op != DSA_OPCODE_DIF_INS && tcfg->op != DSA_OPCODE_DIX_GEN)
+			prepare_dif_buf(tcfg, src[i], 1, desc->src_dif_flags, dif_flags, ref_tag, app_tag);
 		descs[i].xfer_size =
-			tcfg->op == DSA_OPCODE_DIF_INS ? tcfg->blen :
+			(tcfg->op == DSA_OPCODE_DIF_INS ||
+			 tcfg->op == DSA_OPCODE_DIX_GEN) ?
+							tcfg->blen :
 							dif_xfer_size(tcfg);
 
-		if (tcfg->op == DSA_OPCODE_DIF_INS || tcfg->op == DSA_OPCODE_DIF_UPDT)
-			init_dif_expected(tcfg, src, tcpu->dif_tag,
+		if (tcfg->op == DSA_OPCODE_DIF_INS ||
+			tcfg->op == DSA_OPCODE_DIF_UPDT ||
+			tcfg->op == DSA_OPCODE_DIX_GEN)
+			init_dif_expected(tcfg, src[i], tcpu->dif_tag,
 						dif_flags, ref_tag, app_tag);
 
 		init_dif_addr(tcpu, i, 1);
-		src += off_src;
 	}
-}
-
-static void
-prep_dsa_crc_gen(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
-{
-	prep_dsa_src_only(tcpu, desc);
 }
 
 static const uint32_t crc32_table[256] = {
@@ -560,6 +557,73 @@ static const uint32_t crc32_table[256] = {
 0xD2DFB272, 0xCC03DD33, 0xEF676CF0, 0xF1BB03B1, 0xA9AE0F76, 0xB7726037, 0x9416D1F4, 0x8ACABEB5,
 };
 
+static const uint64_t crc64_table[256] = {
+0x0000000000000000,0xAD93D23594C93659,0xF6B4765EBD5B5AEB,0x5B27A46B29926CB2,
+0x40FB3E88EE7F838F,0xED68ECBD7AB6B5D6,0xB64F48D65324D964,0x1BDC9AE3C7EDEF3D,
+0x81F67D11DCFF071E,0x2C65AF2448363147,0x77420B4F61A45DF5,0xDAD1D97AF56D6BAC,
+0xC10D439932808491,0x6C9E91ACA649B2C8,0x37B935C78FDBDE7A,0x9A2AE7F21B12E823,
+0xAE7F28162D373865,0x03ECFA23B9FE0E3C,0x58CB5E48906C628E,0xF5588C7D04A554D7,
+0xEE84169EC348BBEA,0x4317C4AB57818DB3,0x183060C07E13E101,0xB5A3B2F5EADAD758,
+0x2F895507F1C83F7B,0x821A873265010922,0xD93D23594C936590,0x74AEF16CD85A53C9,
+0x6F726B8F1FB7BCF4,0xC2E1B9BA8B7E8AAD,0x99C61DD1A2ECE61F,0x3455CFE43625D046,
+0xF16D8219CEA74693,0x5CFE502C5A6E70CA,0x07D9F44773FC1C78,0xAA4A2672E7352A21,
+0xB196BC9120D8C51C,0x1C056EA4B411F345,0x4722CACF9D839FF7,0xEAB118FA094AA9AE,
+0x709BFF081258418D,0xDD082D3D869177D4,0x862F8956AF031B66,0x2BBC5B633BCA2D3F,
+0x3060C180FC27C202,0x9DF313B568EEF45B,0xC6D4B7DE417C98E9,0x6B4765EBD5B5AEB0,
+0x5F12AA0FE3907EF6,0xF281783A775948AF,0xA9A6DC515ECB241D,0x04350E64CA021244,
+0x1FE994870DEFFD79,0xB27A46B29926CB20,0xE95DE2D9B0B4A792,0x44CE30EC247D91CB,
+0xDEE4D71E3F6F79E8,0x7377052BABA64FB1,0x2850A14082342303,0x85C3737516FD155A,
+0x9E1FE996D110FA67,0x338C3BA345D9CC3E,0x68AB9FC86C4BA08C,0xC5384DFDF88296D5,
+0x4F48D6060987BB7F,0xE2DB04339D4E8D26,0xB9FCA058B4DCE194,0x146F726D2015D7CD,
+0x0FB3E88EE7F838F0,0xA2203ABB73310EA9,0xF9079ED05AA3621B,0x54944CE5CE6A5442,
+0xCEBEAB17D578BC61,0x632D792241B18A38,0x380ADD496823E68A,0x95990F7CFCEAD0D3,
+0x8E45959F3B073FEE,0x23D647AAAFCE09B7,0x78F1E3C1865C6505,0xD56231F41295535C,
+0xE137FE1024B0831A,0x4CA42C25B079B543,0x1783884E99EBD9F1,0xBA105A7B0D22EFA8,
+0xA1CCC098CACF0095,0x0C5F12AD5E0636CC,0x5778B6C677945A7E,0xFAEB64F3E35D6C27,
+0x60C18301F84F8404,0xCD5251346C86B25D,0x9675F55F4514DEEF,0x3BE6276AD1DDE8B6,
+0x203ABD891630078B,0x8DA96FBC82F931D2,0xD68ECBD7AB6B5D60,0x7B1D19E23FA26B39,
+0xBE25541FC720FDEC,0x13B6862A53E9CBB5,0x489122417A7BA707,0xE502F074EEB2915E,
+0xFEDE6A97295F7E63,0x534DB8A2BD96483A,0x086A1CC994042488,0xA5F9CEFC00CD12D1,
+0x3FD3290E1BDFFAF2,0x9240FB3B8F16CCAB,0xC9675F50A684A019,0x64F48D65324D9640,
+0x7F281786F5A0797D,0xD2BBC5B361694F24,0x899C61D848FB2396,0x240FB3EDDC3215CF,
+0x105A7C09EA17C589,0xBDC9AE3C7EDEF3D0,0xE6EE0A57574C9F62,0x4B7DD862C385A93B,
+0x50A1428104684606,0xFD3290B490A1705F,0xA61534DFB9331CED,0x0B86E6EA2DFA2AB4,
+0x91AC011836E8C297,0x3C3FD32DA221F4CE,0x671877468BB3987C,0xCA8BA5731F7AAE25,
+0xD1573F90D8974118,0x7CC4EDA54C5E7741,0x27E349CE65CC1BF3,0x8A709BFBF1052DAA,
+0x9E91AC0C130F76FE,0x33027E3987C640A7,0x6825DA52AE542C15,0xC5B608673A9D1A4C,
+0xDE6A9284FD70F571,0x73F940B169B9C328,0x28DEE4DA402BAF9A,0x854D36EFD4E299C3,
+0x1F67D11DCFF071E0,0xB2F403285B3947B9,0xE9D3A74372AB2B0B,0x44407576E6621D52,
+0x5F9CEF95218FF26F,0xF20F3DA0B546C436,0xA92899CB9CD4A884,0x04BB4BFE081D9EDD,
+0x30EE841A3E384E9B,0x9D7D562FAAF178C2,0xC65AF24483631470,0x6BC9207117AA2229,
+0x7015BA92D047CD14,0xDD8668A7448EFB4D,0x86A1CCCC6D1C97FF,0x2B321EF9F9D5A1A6,
+0xB118F90BE2C74985,0x1C8B2B3E760E7FDC,0x47AC8F555F9C136E,0xEA3F5D60CB552537,
+0xF1E3C7830CB8CA0A,0x5C7015B69871FC53,0x0757B1DDB1E390E1,0xAAC463E8252AA6B8,
+0x6FFC2E15DDA8306D,0xC26FFC2049610634,0x9948584B60F36A86,0x34DB8A7EF43A5CDF,
+0x2F07109D33D7B3E2,0x8294C2A8A71E85BB,0xD9B366C38E8CE909,0x7420B4F61A45DF50,
+0xEE0A530401573773,0x43998131959E012A,0x18BE255ABC0C6D98,0xB52DF76F28C55BC1,
+0xAEF16D8CEF28B4FC,0x0362BFB97BE182A5,0x58451BD25273EE17,0xF5D6C9E7C6BAD84E,
+0xC1830603F09F0808,0x6C10D43664563E51,0x3737705D4DC452E3,0x9AA4A268D90D64BA,
+0x8178388B1EE08B87,0x2CEBEABE8A29BDDE,0x77CC4ED5A3BBD16C,0xDA5F9CE03772E735,
+0x40757B122C600F16,0xEDE6A927B8A9394F,0xB6C10D4C913B55FD,0x1B52DF7905F263A4,
+0x008E459AC21F8C99,0xAD1D97AF56D6BAC0,0xF63A33C47F44D672,0x5BA9E1F1EB8DE02B,
+0xD1D97A0A1A88CD81,0x7C4AA83F8E41FBD8,0x276D0C54A7D3976A,0x8AFEDE61331AA133,
+0x91224482F4F74E0E,0x3CB196B7603E7857,0x679632DC49AC14E5,0xCA05E0E9DD6522BC,
+0x502F071BC677CA9F,0xFDBCD52E52BEFCC6,0xA69B71457B2C9074,0x0B08A370EFE5A62D,
+0x10D4399328084910,0xBD47EBA6BCC17F49,0xE6604FCD955313FB,0x4BF39DF8019A25A2,
+0x7FA6521C37BFF5E4,0xD2358029A376C3BD,0x891224428AE4AF0F,0x2481F6771E2D9956,
+0x3F5D6C94D9C0766B,0x92CEBEA14D094032,0xC9E91ACA649B2C80,0x647AC8FFF0521AD9,
+0xFE502F0DEB40F2FA,0x53C3FD387F89C4A3,0x08E45953561BA811,0xA5778B66C2D29E48,
+0xBEAB1185053F7175,0x1338C3B091F6472C,0x481F67DBB8642B9E,0xE58CB5EE2CAD1DC7,
+0x20B4F813D42F8B12,0x8D272A2640E6BD4B,0xD6008E4D6974D1F9,0x7B935C78FDBDE7A0,
+0x604FC69B3A50089D,0xCDDC14AEAE993EC4,0x96FBB0C5870B5276,0x3B6862F013C2642F,
+0xA142850208D08C0C,0x0CD157379C19BA55,0x57F6F35CB58BD6E7,0xFA6521692142E0BE,
+0xE1B9BB8AE6AF0F83,0x4C2A69BF726639DA,0x170DCDD45BF45568,0xBA9E1FE1CF3D6331,
+0x8ECBD005F918B377,0x235802306DD1852E,0x787FA65B4443E99C,0xD5EC746ED08ADFC5,
+0xCE30EE8D176730F8,0x63A33CB883AE06A1,0x388498D3AA3C6A13,0x95174AE63EF55C4A,
+0x0F3DAD1425E7B469,0xA2AE7F21B12E8230,0xF989DB4A98BCEE82,0x541A097F0C75D8DB,
+0x4FC6939CCB9837E6,0xE25541A95F5101BF,0xB972E5C276C36D0D,0x14E137F7E20A5B54,
+};
+
 static uint8_t
 reflect8(uint8_t in)
 {
@@ -578,6 +642,17 @@ reflect32(uint32_t in)
 	int i;
 
 	for (i = 31; i >= 0; --i, in >>= 1)
+		out |= (in & 0x1) << i;
+	return out;
+}
+
+static uint64_t
+reflect64(uint64_t in)
+{
+	uint64_t out = 0;
+	int i;
+
+	for (i = 63; i >= 0; --i, in >>= 1)
 		out |= (in & 0x1) << i;
 	return out;
 }
@@ -608,18 +683,59 @@ crc32(uint32_t seed, const uint8_t *src, uint64_t len, uint32_t flags)
 	return bypass_crc_inv_ref ? crc : ~reflect32(crc);
 }
 
+static uint64_t
+crc64(uint64_t seed, const uint8_t *src, uint64_t len, uint32_t flags)
+{
+	uint64_t i, crc;
+	uint8_t input, pos;
+	bool bypass_data_ref = !!(flags & CRC_BYP_DATA_REF);
+	bool bypass_crc_inv_ref = !!(flags & CRC_BYP_CRC_INV_REF);
+
+	crc = bypass_crc_inv_ref ? seed : ~reflect64(seed) ;
+
+	/**
+	 * CRC calculation ref:
+	 * www.sunshine2k.de/articles/coding/crc/understanding_crc.html
+	 * CRC calculator:
+	 * http://www.sunshine2k.de/coding/javascript/crc/crc_js.html
+	*/
+	for (i = 0; i < len; i++) {
+		input = bypass_data_ref ? src[i] : reflect8(src[i]);
+		pos = (crc >> 56) ^ input;
+		crc = (crc << 8) ^ crc64_table[pos];
+	}
+
+	return bypass_crc_inv_ref ? crc : ~reflect64(crc);
+}
+
 static void
-prep_dsa_copy_crc(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
+calc_crc(struct tcfg_cpu *tcpu)
 {
 	int i;
 	struct tcfg *tcfg = tcpu->tcfg;
-	uint8_t *src = (uint8_t *)tcpu->src;
+	uint8_t **src = (uint8_t **)tcpu->src;
+	uint32_t flags = tcpu->tcfg->flags_smask;
 
-	prep_dsa_memmove(tcpu, desc);
 	for (i = 0; i < tcfg->nb_bufs; i++) {
-		tcpu->crc[i] = crc32(0, src, tcfg->blen, tcpu->tcfg->flags_smask);
-		src += tcfg->bstride;
+		if(flags & CRC_SIZE_64)
+			tcpu->crc[i] = crc64(0, src[i], tcfg->blen, flags);
+		else
+			tcpu->crc[i] = crc32(0, src[i], tcfg->blen, flags);
 	}
+}
+
+static void
+prep_dsa_crc_gen(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
+{
+	prep_dsa_src_only(tcpu, desc);
+	calc_crc(tcpu);
+}
+
+static void
+prep_dsa_copy_crc(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
+{
+	prep_dsa_memmove(tcpu, desc);
+	calc_crc(tcpu);
 }
 
 static void
@@ -684,6 +800,19 @@ test_prep_batch_desc(struct tcfg_cpu *tcpu)
 	}
 }
 
+static
+void prep_transl_fetch(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
+{
+	struct tcfg *tcfg = tcpu->tcfg;
+
+	*desc = (struct dsa_hw_desc){ 0 };
+	desc->flags = IDXD_OP_FLAG_CRAV | IDXD_OP_FLAG_RCR;
+	desc->flags |= tcfg->ccmask;
+	desc->opcode = DSA_OPCODE_TRANSL_FETCH;
+	desc->transl_fetch_addr = (uint64_t)tcfg->tcpu[0].b[0];
+	desc->region_size = tcfg->nb_bufs * tcfg->blen;
+}
+
 #define WR_FLAGS (IDXD_OP_FLAG_CC | IDXD_OP_FLAG_STORD)
 
 void
@@ -692,13 +821,18 @@ test_prep_desc(struct tcfg_cpu *tcpu)
 	struct tcfg *tcfg = tcpu->tcfg;
 	unsigned int i;
 	struct dsa_hw_desc desc = {}, *pd;
-	uint32_t resv_flags[DSA_OPCODE_CFLUSH + 1] = {
+	struct dsa_hw_desc tf_desc;
+
+	uint32_t resv_flags[DSA_OPCODE_RS_IPASID_CFLUSH + 1] = {
 			[DSA_OPCODE_NOOP] = WR_FLAGS,
 			[DSA_OPCODE_COMPARE] = WR_FLAGS,
 			[DSA_OPCODE_COMPVAL] = WR_FLAGS,
 			[DSA_OPCODE_CRCGEN] = WR_FLAGS,
-			[DSA_OPCODE_DIF_CHECK] = WR_FLAGS };
+			[DSA_OPCODE_DIF_CHECK] = WR_FLAGS,
+			[DSA_OPCODE_RS_IPASID_COMPARE] = WR_FLAGS,
+			[DSA_OPCODE_RS_IPASID_COMPVAL] = WR_FLAGS };
 
+	prep_transl_fetch(tcpu, &tf_desc);
 
 	desc.opcode = tcfg->op;
 	desc.flags = IDXD_OP_FLAG_CRAV;
@@ -712,18 +846,22 @@ test_prep_desc(struct tcfg_cpu *tcpu)
 	switch (tcfg->op) {
 
 	case DSA_OPCODE_MEMMOVE:
+	case DSA_OPCODE_RS_IPASID_MEMCOPY:
 		prep_dsa_memmove(tcpu, &desc);
 		break;
 
 	case DSA_OPCODE_MEMFILL:
+	case DSA_OPCODE_RS_IPASID_FILL:
 		prep_dsa_memfill(tcpu, &desc);
 		break;
 
 	case DSA_OPCODE_COMPARE:
+	case DSA_OPCODE_RS_IPASID_COMPARE:
 		prep_dsa_memcmp(tcpu, &desc);
 		break;
 
 	case DSA_OPCODE_COMPVAL:
+	case DSA_OPCODE_RS_IPASID_COMPVAL:
 		prep_dsa_cmpval(tcpu, &desc);
 		break;
 
@@ -743,6 +881,7 @@ test_prep_desc(struct tcfg_cpu *tcpu)
 	case DSA_OPCODE_DIF_STRP:
 	case DSA_OPCODE_DIF_INS:
 	case DSA_OPCODE_DIF_UPDT:
+	case DSA_OPCODE_DIX_GEN:
 		prep_dsa_dif(tcpu, &desc);
 		break;
 
@@ -755,6 +894,7 @@ test_prep_desc(struct tcfg_cpu *tcpu)
 		break;
 
 	case DSA_OPCODE_CFLUSH:
+	case DSA_OPCODE_RS_IPASID_CFLUSH:
 		prep_dsa_cflush(tcpu, &desc);
 		break;
 
@@ -768,6 +908,9 @@ test_prep_desc(struct tcfg_cpu *tcpu)
 		return;
 	}
 
+	if (IS_INTER_DOMAIN_OP(tcfg->op))
+		init_inter_domain_params(tcpu);
+
 	pd = tcpu->desc;
 
 	shuffle_descs(tcpu);
@@ -775,29 +918,29 @@ test_prep_desc(struct tcfg_cpu *tcpu)
 	for (i = 0; i < tcfg->nb_bufs; i++) {
 		char *c;
 
+		pd[i].flags |= tcfg->ccmask;
+		if (tcfg->transl_fetch && ((i+1) % tcfg->transl_fetch == 0))
+			pd[i] = tf_desc;
+		else if (tcfg->flags_nth_desc > 0 && (i+1) % tcfg->flags_nth_desc == 0){
+			pd[i].flags &= tcfg->flags_cmask;
+			pd[i].flags |= tcfg->flags_smask;
+		}
+		pd[i].flags &= ~resv_flags[tcfg->op];
 		c = (char *)tcpu->comp + i * comp_rec_cache_aligned_size(tcpu);
 		pd[i].completion_addr = rte_mem_virt2iova(c);
 
 		/* mmap(MAP_POPULATE) but generates a fault on write after fork */
 		if (tcfg->pg_size == 0 && tcfg->proc)
-			faultin_range((char *)(pd[i].completion_addr & ~0xfffUL),
-				4096, 4096, 1);
-		pd[i].flags |= tcfg->ccmask;
-		if (tcfg->flags_nth_desc > 0 && (i+1) % tcfg->flags_nth_desc == 0) {
-			pd[i].flags &= tcfg->flags_cmask;
-			pd[i].flags |= tcfg->flags_smask;
-		}
-		pd[i].flags &= ~resv_flags[tcfg->op];
+			faultin_range((char *)(pd[i].completion_addr & ~0xfffUL), 4096);
 	}
 
 	test_prep_batch_desc(tcpu);
 
 	if (tcfg->drain_desc) {
-		uint64_t	cp_addr;
-
 		/*
 		 * for -Y option, we need to convert the last desc to drain.
 		 */
+		uint64_t cp_addr;
 		pd = desc_ptr(tcpu) + tcfg->nb_desc - 1;
 		cp_addr = pd->completion_addr;
 		memset(pd, 0, sizeof(struct dsa_hw_desc));

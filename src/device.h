@@ -6,7 +6,7 @@ struct tcfg;
 struct wq_info;
 
 int driver_init(struct tcfg *tcfg);
-void *wq_map(char *dname, int wq, int shared, int numa_node);
+void *wq_map(char *dname, int wq, int shared, int numa_node, int *wq_fd);
 void wq_unmap(void *ptr);
 void wq_info_get(void *wq, struct wq_info *wq_info);
 int dmap(int fd, void *va, ssize_t len);

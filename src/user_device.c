@@ -25,6 +25,7 @@
 #include "common.h"
 #include "device.h"
 #include "user_device.h"
+#include "util.h"
 
 #define MAP_SIZE (1UL * 1024 * 1024 * 1024)
 #define MAP_CHUNK (4 * 1024)
@@ -258,56 +259,6 @@ pci_vfio_enable_bus_memory(int dev_fd)
 	return 0;
 }
 
-static int
-exec_cmd(char *cmd, uint32_t *v)
-{
-	FILE *fp;
-	int rc;
-
-	fp = popen(cmd, "r");
-	if (!fp) {
-		ERR("popen failed\n");
-		return -1;
-	}
-
-	rc = v ? fscanf(fp, "%x", v)  == 1 ? 0 : -1 : 0;
-	pclose(fp);
-
-	return rc;
-}
-
-#define TPH_CTL "168"
-
-static int
-read_tph(char *bdf, uint32_t *tph)
-{
-	char *cmd;
-	int rc;
-
-	rc = asprintf(&cmd, "setpci -s %s "TPH_CTL".l", bdf);
-	if (rc < 0)
-		return -1;
-	rc = exec_cmd(cmd, tph);
-	free(cmd);
-
-	return rc;
-}
-
-static int
-write_tph(char *bdf, int32_t v)
-{
-	char *cmd;
-	int rc;
-
-	rc = asprintf(&cmd, "setpci -s %s "TPH_CTL".l=0x%x", bdf, v);
-	if (rc < 0)
-		return -1;
-
-	rc = exec_cmd(cmd, NULL);
-	free(cmd);
-
-	return rc;
-}
 
 static int
 uio_setup_device(char *bdf)
@@ -1208,37 +1159,16 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static int
 common_init(int uio_cnt, struct udev_info *pd)
 {
-	uint32_t tph, tmp;
 	int rc;
-
-	rc = read_tph(pd->bdf, &tph);
-	if (rc == -1) {
-		ERR("Error reading tph\n");
-		return -EIO;
-	}
-
-	if (!tph) {
-		ERR("TPH capability is disabled\n");
-		return -EINVAL;
-	}
 
 	rc = uio_cnt ? uio_init(pd) : vfio_init(pd);
 	if (rc)
 		return rc;
 
-	rc = read_tph(pd->bdf, &tmp);
-	if (rc == -1) {
-		ERR("Error reading tph\n");
-		return -EIO;
-	}
-
-	if (tmp == tph)
-		return 0;
-
-	rc = write_tph(pd->bdf, tph);
-	if (rc == -1) {
-		ERR("Failed to write tph value\n");
-		return -EIO;
+	rc = init_tph(pd->bdf);
+	if (rc) {
+		ERR("Failed to write tph value %s\n", pd->bdf);
+		return rc;
 	}
 
 	return 0;

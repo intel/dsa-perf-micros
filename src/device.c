@@ -15,14 +15,14 @@
 static int dd;
 
 void *
-wq_map(char *dname, int wq_id, int shared, int numa_node)
+wq_map(char *dname, int wq_id, int shared, int numa_node, int *wq_fd)
 {
 	void *ptr = NULL;
 
 	switch (dd) {
 
 	case IDXD:
-		ptr = idxd_wq_get(dname, wq_id, shared, numa_node);
+		ptr = idxd_wq_get(dname, wq_id, shared, numa_node, wq_fd);
 		break;
 
 	case USER:

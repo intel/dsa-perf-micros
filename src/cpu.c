@@ -79,15 +79,9 @@ void
 test_memcpy(struct tcfg_cpu *tcpu)
 {
 	uint32_t i, j;
-	char *src, *dst, *src1, *src2;
-	struct delta_rec *delta;
-	uint32_t off;
+	char **src, **dst, **src1, **src2;
+	struct delta_rec **delta;
 	struct tcfg *tcfg = tcpu->tcfg;
-
-	if (tcfg->bstride != 0)
-		off = tcfg->bstride;
-	else
-		off = tcfg->blen;
 
 	init_buffers(tcpu);
 
@@ -104,25 +98,25 @@ test_memcpy(struct tcfg_cpu *tcpu)
 			switch (tcfg->op) {
 			case DSA_OPCODE_MEMFILL:
 			case DSA_OPCODE_CFLUSH:
-				memset(dst, TEST_CHAR, tcfg->blen);
+				memset(dst[j], TEST_CHAR, tcfg->blen);
 				break;
 
 			case DSA_OPCODE_COMPVAL:
-				cmpval(src, tcfg->blen);
+				cmpval(src[j], tcfg->blen);
 				break;
 
 			case DSA_OPCODE_MEMMOVE:
-				memcpy(dst, src, tcfg->blen);
+				memcpy(dst[j], src[j], tcfg->blen);
 				break;
 
 			case DSA_OPCODE_CR_DELTA:
-				cmpval(src1, tcfg->blen);
-				cmpval(src2, tcfg->blen);
+				cmpval(src1[j], tcfg->blen);
+				cmpval(src2[j], tcfg->blen);
 				memset(delta, 0, tcfg->delta_rec_size);
 				break;
 
 			case DSA_OPCODE_AP_DELTA:
-				ap_delta(dst, delta, tcfg->delta_rec_size);
+				ap_delta(dst[j], delta[j], tcfg->delta_rec_size);
 				break;
 
 			default:
@@ -131,10 +125,6 @@ test_memcpy(struct tcfg_cpu *tcpu)
 				return;
 			}
 
-			src += off;
-			dst += off;
-			src1 += off;
-			src2 += off;
 			delta += tcfg->delta_rec_size/sizeof(*delta);
 		}
 	}
@@ -169,39 +159,35 @@ test_memcpy(struct tcfg_cpu *tcpu)
 
 			switch (tcfg->op) {
 			case DSA_OPCODE_MEMMOVE:
-				memcpy(dst, src, tcfg->blen);
+				memcpy(dst[j], src[j], tcfg->blen);
 				break;
 
 			case DSA_OPCODE_MEMFILL:
-				memset(dst, 0, tcfg->blen);
+				memset(dst[j], 0, tcfg->blen);
 				break;
 
 			case DSA_OPCODE_COMPVAL:
-				cmpval(src, tcfg->blen);
+				cmpval(src[j], tcfg->blen);
 				break;
 
 			case DSA_OPCODE_CFLUSH:
 				if (tcfg->ccmask & IDXD_OP_FLAG_CC)
-					clwb(dst, tcfg->blen);
+					clwb(dst[j], tcfg->blen);
 				else
-					cflush(dst, tcfg->blen);
+					cflush(dst[j], tcfg->blen);
 				break;
 
 			case DSA_OPCODE_CR_DELTA:
-				cr_delta(src1, src2, delta, tcfg->blen);
+				cr_delta(src1[j], src2[j], delta[j], tcfg->blen);
 				break;
 
 			case DSA_OPCODE_AP_DELTA:
-				ap_delta(dst, delta, tcfg->delta_rec_size);
+				ap_delta(dst[j], delta[j], tcfg->delta_rec_size);
 				break;
 
 			}
 
 			tcpu->cycles += rdtsc() - c;
-			src += off;
-			dst += off;
-			src1 += off;
-			src2 += off;
 			delta += tcfg->delta_rec_size/sizeof(*delta);
 		}
 
