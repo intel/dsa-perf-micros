@@ -12,6 +12,7 @@
 #include "dsa.h"
 #include "device.h"
 #include "idxd_device.h"
+#include "util.h"
 
 struct idxd_wq_info {
 	void *ptr;
@@ -69,12 +70,19 @@ open_wq(struct accfg_wq *wq)
 	return fd;
 }
 
+static const char *
+wq_to_dev_name(struct accfg_wq *wq)
+{
+	return accfg_device_get_devname(accfg_wq_get_device(wq));
+}
 
 static struct accfg_wq *
 idxd_wq_find(struct accfg_ctx *ctx, char *dname, int wq_id, int shared, int numa_node)
 {
 	struct accfg_device *device;
 	struct accfg_wq *wq;
+	char *pci_name;
+	int rc;
 
 	accfg_device_foreach(ctx, device) {
 		enum accfg_device_state dstate;
@@ -123,7 +131,15 @@ idxd_wq_find(struct accfg_ctx *ctx, char *dname, int wq_id, int shared, int numa
 			if (fd < 0)
 				continue;
 
+			pci_name = dev_name_to_pci_name(wq_to_dev_name(wq));
+			rc = init_tph(pci_name);
+			free(pci_name);
 			close(fd);
+			if (rc) {
+				ERR("Error updating TPH: %d\n", rc);
+				return NULL;
+			}
+
 			return wq;
 		}
 	}
@@ -131,7 +147,7 @@ idxd_wq_find(struct accfg_ctx *ctx, char *dname, int wq_id, int shared, int numa
 	return NULL;
 }
 static void *
-idxd_wq_mmap(struct accfg_wq *wq)
+idxd_wq_mmap(struct accfg_wq *wq, int *wq_fd)
 {
 	int fd;
 	void *wq_reg;
@@ -145,14 +161,18 @@ idxd_wq_mmap(struct accfg_wq *wq)
 		return NULL;
 	}
 
-	close(fd);
+	if (wq_fd)
+		*wq_fd = fd;
+	else
+		close(fd);
+
 	return wq_reg;
 }
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 void *
-idxd_wq_get(char *dname, int wq_id, int shared, int numa_node)
+idxd_wq_get(char *dname, int wq_id, int shared, int numa_node, int *wq_fd)
 {
 	struct accfg_ctx *ctx;
 	struct accfg_wq *wq;
@@ -171,7 +191,7 @@ idxd_wq_get(char *dname, int wq_id, int shared, int numa_node)
 		goto err_ret;
 	}
 
-	ptr = idxd_wq_mmap(wq);
+	ptr = idxd_wq_mmap(wq, wq_fd);
 	if (!ptr) {
 		ERR("Failed to map WQ dev %s wq %d\n", dname,
 			accfg_wq_get_id(wq));

@@ -4,7 +4,7 @@
 
 struct wq_info;
 
-void *idxd_wq_get(char *dname, int wq_id, int shared, int numa_node);
+void *idxd_wq_get(char *dname, int wq_id, int shared, int numa_node, int *wq_fd);
 void idxd_wq_info_get(void *ptr, struct wq_info *wq_info);
 int idxd_wq_size(void *ptr);
 int idxd_wq_dedicated(void *ptr);

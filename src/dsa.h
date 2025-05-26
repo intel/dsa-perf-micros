@@ -14,6 +14,8 @@
 #define DIF_INVERT_CRC_RESULT		(1 << 3)
 #define CRC_BYP_CRC_INV_REF		(1 << 17)
 #define CRC_BYP_DATA_REF		(1 << 18)
+#define CRC_SIZE_64			(1 << 19)
+#define FILL_16_PATTERN_SIZE		(1 << 18)
 
 // DIF index's.
 #define DIF_BLK_GRD_1  0

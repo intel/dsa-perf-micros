@@ -25,13 +25,6 @@ struct parse_info {
 	int nb_a, nb_p;
 };
 
-struct cpu_wq_info {
-	uint32_t c;
-	char *d;
-	int q;
-	int g;
-};
-
 #define MAX_DELTA_TRANSFER_SIZE 0x80000
 #define MAX_TRANSFER_SIZE	0x80000000
 
@@ -63,8 +56,15 @@ static struct op_info op_info[] = {
 	OP_INFO_ADDR(DIF_INS, src, dst, addr_none, 0, false),
 	OP_INFO_ADDR(DIF_STRP, src, dst, addr_none, 0, false),
 	OP_INFO_ADDR(DIF_UPDT, src, dst, addr_none, 0, false),
+	OP_INFO_ADDR(DIX_GEN, src, dst, addr_none, 0, false),
 
-	OP_INFO_ADDR(CFLUSH, dst, addr_none, addr_none, 0, false)
+	OP_INFO_ADDR(CFLUSH, dst, addr_none, addr_none, 0, false),
+
+	OP_INFO_ADDR(RS_IPASID_MEMCOPY, src, dst, addr_none, 0, false),
+	OP_INFO_ADDR(RS_IPASID_FILL, dst, addr_none, addr_none, 0, false),
+	OP_INFO_ADDR(RS_IPASID_COMPARE, src1, src2, addr_none, 0, true),
+	OP_INFO_ADDR(RS_IPASID_COMPVAL, src, addr_none, addr_none, 0, true),
+	OP_INFO_ADDR(RS_IPASID_CFLUSH, dst, addr_none, addr_none, 0, false),
 };
 
 #define ARR_IDX(c) ((c) - 'A')
@@ -91,7 +91,7 @@ void print_usage(void)
 	"\t-c                   ; Increment portal address between descriptors.\n"
 	"\t-C                   ; Include descriptor modification cycles in CPU utilization measurement\n"
 	"\t-D <delta %%>         ; Delta (specified as a percentage) between buffers for delta create and delta apply\n"
-	"\t-e <block length>    ; Block len [0-3] for dif operations\n"
+	"\t-e <block length>    ; Block len [0-3] for DIF and DIX operations\n"
 	"\t-f                   ; Set the cache control flag in descriptors\n"
 	"\t-F <flag_bits_to_clear:flag_bits_to_set:every_nth_desc>\n"
 	"\t                       e.g., -F 0xFFFFF7:0x8:4 to clear Addr2_TC flag and set RCR=1 on every 4th descriptor\n"
@@ -107,19 +107,41 @@ void print_usage(void)
 	"\t-0 <offset list>     ; Buffer address offsets from start of 4K page in decimal (-Ob1_off,b2_off,b3_off)\n"
 	"\t-P                   ; Use processes instead of threads\n"
 	"\t-q <queue depth>     ; Queue depth for dedicated WQ, can be > WQ size (use with -j)\n"
+	"\t-R <CPU/WQ list>     ; List of CPUs and associated WQ (e.g., [0]@dsa0,0,[2-3]@dsa0,1) for inter domain owner process\n"
+	"\t                     ; There should be one or two owner process (based on Inter-domain operands) per test thread/process (defined by -K param)\n"
+	"\t                     ; Without the -R option dsa_perf_micros will try to choose from the available wqs on the device of the submitter\n"
+	"\t-r <inter_domain_operand,idpte_type,update_window_interval,window_mode,window_enable,idpt_wnd_count>\n"
+	"\t                     ; inter_domain_operand - Required for inter-domain copy and compare ops only\n"
+	"\t                          ; 0x1 - 1 Inter-domain operand - addr1 only\n"
+	"\t                          ; 0x2 - 1 Inter-domain operand - addr2 only\n"
+	"\t                          ; 0x3 - 2 Inter-domain operands - addr1 & addr2 both\n"
+	"\t                     ; idpte_type\n"
+	"\t                          ; 0 - Single Access Single Submitter\n"
+	"\t                          ; 1 - Single Access Multiple Submitter\n"
+	"\t                     ; update_window_interval\n"
+	"\t                          ; update window desc to be sent at every n desc\n"
+	"\t                     ; window_mode\n"
+	"\t                          ; 0 - Window operates in Address mode (default)\n"
+	"\t                          ; 1 - Window operates in Offset mode\n"
+	"\t                     ; window_enable\n"
+	"\t                          ; 0 - The window address range checks are disabled\n"
+	"\t                          ; 1 - The window address range checks are enabled (default)\n"
+	"\t                     ; idpt_wnd_count\n"
+	"\t                          ; Number of IDPT Windows to be created\n"
 	"\t-s <size>            ; Transfer size in bytes, can use k,m,g to specify KiB/MiB/GiB (e.g., -b 200m)\n"
 	"\t-S <Numa Node list>  ; Numa node IDs fo src(b1)/dst(b2)/b3 allocation, specify -1 for same node\n"
 	"\t                     ; as CPU (e.g., -S-1,1 - same node as CPU for src, node 1 for dst)\n"
 	"\t-t <stride>          ; Stride between buffer start addresses\n"
 	"\t-T <time in sec>     ; Time interval for BW measurement, use with -i-1\n"
 	"\t-u<engine count>     ; Use VFIO/UIO device, engine count is optional\n"
+	"\t-v                   ; Verify result (0 => disable, 1 => enable, default is enable)\n"
 	"\t-w <0/1>             ; WQ type, 0 => dedicated, 1 => shared\n"
 	"\t-W<warmup iterations> ; deprecated prameter - check sample_command_lines.rst for latency measurement command line\n"
 	"\t-x<misc_flags>       ; bit0 => deprecated - check sample_command_lines.rst for latency measurement command line\n"
 	"\t                       bits[1:5]: movdir64/enqcmd submission rate test\n"
 	"\t                       bit[7:8] => pause(7)/umwait(8) in completion wait (use for latency measurement)\n"
 	"\t                       bits[9:31] => unused\n"
-	"\t-v                   ; Verify result (0 => disable, 1 => enable, default is enable)\n"
+	"\t-X <Translation Fetch Interval> ; Send translation fetch descriptor after every X descriptors\n"
 	"\t-y                   ; Comma seperated list used to specify how DSA operands (None/Read/Write) are\n"
 	"\t                       accessed by the CPU before descriptors are issued.\n"
 	"\t-Y                   ; Convert last descriptor to drain descriptor.\n"
@@ -202,7 +224,7 @@ static int
 parse_blen(uint64_t *blen, char *str)
 {
 	char c;
-	uint32_t m;
+	uint64_t m;
 
 	*blen = 0;
 	c = toupper(str[strlen(str) - 1]);
@@ -218,6 +240,10 @@ parse_blen(uint64_t *blen, char *str)
 
 	case 'G':
 		m = 1024 * 1024 * 1024;
+		break;
+
+	case 'T':
+		m = 1024 * 1024 * 1024 * 1024UL;
 		break;
 
 	default:
@@ -471,6 +497,13 @@ do {\
 		(s) = (l);\
 } while (0)
 
+#define UPDT_BLEN_STRD_DIX(l, s, nb_blocks) \
+do {\
+	(l) = (nb_blocks) * 8;\
+	if ((s) < (l))\
+		(s) = (l);\
+} while (0)
+
 	switch (tc->op) {
 
 	case DSA_OPCODE_DIF_CHECK:
@@ -492,6 +525,11 @@ do {\
 	case DSA_OPCODE_DIF_UPDT:
 		UPDT_BLEN_STRD(tc->blen_arr[0], tc->bstride_arr[0], nb_blocks);
 		UPDT_BLEN_STRD(tc->blen_arr[1], tc->bstride_arr[1], nb_blocks);
+		break;
+
+	case DSA_OPCODE_DIX_GEN:
+		UPDT_BLEN_STRD_DIX(tc->blen_arr[1], tc->bstride_arr[1], nb_blocks);
+		break;
 	}
 }
 
@@ -509,6 +547,29 @@ calc_delta_rec_size(struct tcfg *tcfg)
 	return nb_cmp * sizeof(struct delta_rec);
 }
 
+static int
+compare_dname(const void *p0, const void *p1)
+{
+       const struct tcfg_cpu *t[2];
+
+       t[0] = p0;
+       t[1] = p1;
+
+       return strcmp(t[0]->dname, t[1]->dname);
+}
+
+static void
+sort_cpu(struct tcfg *tc)
+{
+	/**
+	 * Sorting list of CPUs to ensure correct counting of participating CPUs.
+	 * In case of same CPU id mentioned for multiple processes.
+	 * Sorting can be done only if CPU info is provided via -K option.
+	 */
+	if (tc->nb_K)
+		qsort(tc->tcpu, tc->nb_cpus, sizeof(tc->tcpu[0]), compare_dname);
+}
+
 static void
 fixup_options(struct tcfg *tc, struct parse_info *pi)
 {
@@ -517,6 +578,7 @@ fixup_options(struct tcfg *tc, struct parse_info *pi)
 	switch (tc->op) {
 
 	case DSA_OPCODE_MEMFILL:
+	case DSA_OPCODE_RS_IPASID_FILL:
 		for (i = 0; i < tc->nb_numa_node; i++) {
 			/* S1,-1 => S-1 */
 			if (pi->nb_node[i] == 2) {
@@ -524,9 +586,12 @@ fixup_options(struct tcfg *tc, struct parse_info *pi)
 				tc->numa_node[i][0] = tc->numa_node[i][1];
 			}
 		}
+		if (tc->op == DSA_OPCODE_RS_IPASID_FILL)
+			tc->id_oper = 2;
 		break;
 
 	case DSA_OPCODE_COMPARE:
+	case DSA_OPCODE_RS_IPASID_COMPARE:
 		/* -yR => -yR,R */
 		if (pi->nb_a == 1) {
 			pi->nb_a = 2;
@@ -597,12 +662,22 @@ fixup_options(struct tcfg *tc, struct parse_info *pi)
 		}
 		break;
 
+	case DSA_OPCODE_RS_IPASID_COMPVAL:
+		tc->id_oper = 1;
+		break;
+
+	case DSA_OPCODE_RS_IPASID_CFLUSH:
+		tc->id_oper = 2;
+		break;
+
 	default:
 		break;
 	}
 
 	if (tc->iter == -1 && tc->tval_secs == 0)
 		tc->tval_secs = TIME_DELAY_SEC;
+
+	sort_cpu(tc);
 }
 
 static void
@@ -615,7 +690,8 @@ init_tc_numa_node(int (*n)[NUM_ADDR_MAX])
 }
 
 static int
-do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct cpu_wq_info *cpu_idx)
+do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi,
+			struct cpu_wq_info *cpu_idx, struct cpu_wq_info *id_owners)
 {
 	char *a = pi->a;
 	char *p = pi->p;
@@ -624,13 +700,12 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 	int opt;
 	uint64_t op;
 	int n;
-	unsigned int nb_k, nb_K;
 	int rc;
 
 	n = 0;
-	nb_k = nb_K = 0;
-	while ((opt = getopt(argc, argv, "b:e:i:k:l:n:o:q:s:t:u::v:w:x:y:z:B:D:F:K:"
-			"L:M:O:S:T:W:achfjmCPY")) != -1) {
+	tc->nb_k = tc->nb_K = 0;
+	while ((opt = getopt(argc, argv, "b:e:i:k:l:n:o:q:r:s:t:u::v:w:x:y:z:B:D:F:K:"
+			"M:O:R:S:T:W:X:achfjmCPY")) != -1) {
 		int nb_a, nb_p;
 
 		switch (opt) {
@@ -697,24 +772,24 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 			break;
 
 		case 'k':
-			if (nb_K) {
+			if (tc->nb_K) {
 				ERR("Only one of -k or -K can be specified\n");
 				return -EINVAL;
 			}
 
-			if (parse_cpu_param(cpu_idx, &nb_k, optarg) != 0) {
+			if (parse_cpu_param(cpu_idx, &tc->nb_k, optarg) != 0) {
 				ERR("Failed to parse CPU list\n");
 				return -EINVAL;
 			}
 			break;
 
 		case 'K':
-			if (nb_k) {
+			if (tc->nb_k) {
 				ERR("Only one of -k or -K can be specified\n");
 				return -EINVAL;
 			}
 
-			if (parse_cpu_wq_param(cpu_idx, &nb_K, optarg)) {
+			if (parse_cpu_wq_param(cpu_idx, &tc->nb_K, optarg)) {
 				ERR("Failed to parse CPU to WQ map\n");
 				return -EINVAL;
 			}
@@ -760,6 +835,23 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 
 		case 'q':
 			tc->qd = strtoul(optarg, NULL, 0);
+			break;
+
+		case 'R':
+			if (parse_cpu_wq_param(id_owners, &tc->id_nb_owners, optarg)) {
+				ERR("Failed to parse CPU to WQ map for inter domain owners\n");
+				return -EINVAL;
+			}
+			break;
+
+		case 'r':
+			sscanf(optarg, "%x,%d,%d,%d,%d,%d",
+					&tc->id_oper,
+					&tc->id_idpte_type,
+					&tc->id_updt_win_interval,
+					&tc->id_window_mode,
+					&tc->id_window_enable,
+					&tc->id_window_cnt);
 			break;
 
 		case 's':
@@ -828,6 +920,10 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 				printf("-x1 deprecated, use -n2 -q1 -t max(page size, align_h(buffer size, page size))\n");
 			break;
 
+		case 'X':
+			tc->transl_fetch = strtoul(optarg, NULL, 0);
+			break;
+
 		case 'Y':
 			tc->drain_desc = 1;
 			break;
@@ -870,9 +966,48 @@ do_getopt(int argc, char **argv, struct tcfg *tc, struct parse_info *pi, struct 
 		}
 	}
 
-	tc->nb_cpus = nb_k ? nb_k : nb_K;
+	tc->nb_cpus = tc->nb_k ? tc->nb_k : tc->nb_K;
 
 	return 0;
+}
+
+static bool
+use_large_stride_support(struct tcfg *tcfg)
+{
+	int j;
+	uint64_t pg_sz = page_sz(tcfg);
+	static uint8_t ls_ops[] = { DSA_OPCODE_MEMMOVE, DSA_OPCODE_MEMFILL,
+				DSA_OPCODE_COMPARE, DSA_OPCODE_COMPVAL,
+				DSA_OPCODE_CRCGEN, DSA_OPCODE_COPY_CRC };
+	bool ls_op;
+
+	if (tcfg->driver == USER)
+		return false;
+
+	for (j = 0, ls_op = false; j < ARRAY_SIZE(ls_ops); j++)
+		ls_op |= tcfg->op == ls_ops[j];
+
+	if (!ls_op)
+		return false;
+
+	for (j = 0; j < tcfg->op_info->nb_buf; j++)
+		if (tcfg->mmio_mem[j].bfile || tcfg->buf_off[j])
+			return false;
+
+	/* Use large stride support only when stride = N * page size (N > 1) */
+	if (tcfg->bstride <= pg_sz || tcfg->bstride % pg_sz)
+		return false;
+
+	/*
+	 * if blen < page size and total physical memory allocation > page size
+	 * then page size should be N * blen, this simplifies the code since
+	 * buffers are not split across pages
+	 */
+	if (tcfg->blen < pg_sz &&
+		tcfg->nb_bufs * tcfg->blen > pg_sz && (pg_sz % tcfg->blen))
+		return false;
+
+	return true;
 }
 
 static int
@@ -888,7 +1023,14 @@ parse_options(int argc, char **argv, struct tcfg *tc, struct parse_info *pi)
 		return -ENOMEM;
 	}
 
-	rc = do_getopt(argc, argv, tc, pi, cpu_idx);
+	tc->id_owners = calloc(get_nprocs() * 2, sizeof(tc->id_owners[0]));
+	if (tc->id_owners == NULL) {
+		ERR("Failed to allocate cpu array for inter domain owners\n");
+		free(cpu_idx);
+		return -ENOMEM;
+	}
+
+	rc = do_getopt(argc, argv, tc, pi, cpu_idx, tc->id_owners);
 	if (rc) {
 		free(cpu_idx);
 		return rc;
@@ -981,6 +1123,7 @@ parse_options(int argc, char **argv, struct tcfg *tc, struct parse_info *pi)
 	}
 
 	tc->op_info = &op_info[tc->op];
+	tc->large_stride = use_large_stride_support(tc);
 
 	free(cpu_idx);
 
@@ -1028,7 +1171,7 @@ validate_offsets(struct tcfg *tc)
 static int
 validate_options(struct tcfg *tc, struct parse_info *pi)
 {
-	int i;
+	int i, owners_per_submitter, expected_nb_owners;
 	int op = tc->op;
 	int rc;
 
@@ -1056,7 +1199,8 @@ validate_options(struct tcfg *tc, struct parse_info *pi)
 		return -EINVAL;
 	}
 
-	if (op >= DSA_OPCODE_DIF_CHECK && op <= DSA_OPCODE_DIF_UPDT) {
+	if ((op >= DSA_OPCODE_DIF_CHECK && op <= DSA_OPCODE_DIF_UPDT)
+		|| op == DSA_OPCODE_DIX_GEN) {
 		if (tc->bl_idx >= 4) {
 			ERR("Invalid bl, should be [0-3]\n");
 			return -EINVAL;
@@ -1096,6 +1240,53 @@ validate_options(struct tcfg *tc, struct parse_info *pi)
 		ERR("Max size of buffer is %x blen %lx\n",
 				op_info[op].max_transfer_size, tc->blen);
 		return -EINVAL;
+	}
+
+	if (IS_INTER_DOMAIN_OP(op)) {
+		if (tc->id_oper < 1 || tc->id_oper > 3) {
+			ERR("Invalid inter domain operand in -r option - %d\n", tc->id_oper);
+			return -EINVAL;
+		}
+		if (tc->id_idpte_type != IDXD_WIN_TYPE_SA_SS &&
+			tc->id_idpte_type != IDXD_WIN_TYPE_SA_MS) {
+			ERR("Invalid idpte type in -r option - %d\n", tc->id_idpte_type);
+			return -EINVAL;
+		}
+		if (tc->id_window_mode != IDPTE_ADDRESS_MODE &&
+			tc->id_window_mode != IDPTE_OFFSET_MODE) {
+			ERR("Invalid value for Window Mode - %d\n", tc->id_window_mode);
+			return -EINVAL;
+		}
+		if (tc->id_window_enable != 0 && tc->id_window_enable != 1) {
+			ERR("Invalid value for Window Enable - %d\n", tc->id_window_enable);
+			return -EINVAL;
+		}
+		if (!tc->id_window_enable && tc->id_window_mode == IDPTE_OFFSET_MODE) {
+			ERR("ID Window enable = 0 (full range) cannot be combined with"
+				" window mode = 1 (offset mode)\n");
+			return -EINVAL;
+		}
+
+		if (!tc->nb_K) {
+			ERR("CPU/WQ information is not provided via -K param\n");
+			return -EINVAL;
+		}
+
+		owners_per_submitter = 1 + (tc->id_oper == 3);
+		expected_nb_owners = tc->id_idpte_type == IDXD_WIN_TYPE_SA_MS
+					?  get_dsa_dev_count(tc)
+						* owners_per_submitter
+					: tc->nb_cpus * owners_per_submitter;
+		if (tc->id_nb_owners) {
+			if (expected_nb_owners != tc->id_nb_owners) {
+				ERR("Different numbers of owners specified than submitters."
+					" Expected %d, Actual %d\n",
+					expected_nb_owners, tc->id_nb_owners);
+				return -EINVAL;
+			}
+			tc->id_owners_given = true;
+		} else
+			tc->id_nb_owners = expected_nb_owners;
 	}
 
 	return 0;

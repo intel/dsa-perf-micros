@@ -24,6 +24,12 @@
 /* max number of operands e.g., dual cast - src1, dst1, dst2 */
 #define NUM_ADDR_MAX	3
 
+/* To check if a number x is in range [a,b] */
+#define IS_IN_RANGE(x, a, b) ((x) >= (a) && (x) <= (b))
+#define IS_INTER_DOMAIN_OP(op) \
+	(IS_IN_RANGE(op, DSA_OPCODE_RS_IPASID_MEMCOPY, DSA_OPCODE_RS_IPASID_CFLUSH))
+#define NUM_ID_ADDRS 2 /* Max number of Inter domain addresses in a descriptor */
+
 enum {
 	DSA = 0,
 	IAX
@@ -58,6 +64,11 @@ enum {
 	TEST_ENQMEM = 1 << 31
 };
 
+/* Address modes for Interdomain ops */
+enum {
+	IDPTE_ADDRESS_MODE = 0,
+	IDPTE_OFFSET_MODE
+};
 
 struct tcfg;
 
@@ -99,6 +110,13 @@ struct iter_stat {
 	};
 };
 
+struct cpu_wq_info {
+	uint32_t c;
+	char *d;
+	int q;
+	int g;
+};
+
 /*
  * T10 Protection Information tuple.
  */
@@ -118,6 +136,7 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	int crdt;		/* wq credits */
 	int dwq;
 	int qd;
+	int wq_fd;		/* fd of the wq opened by a test thread/process */
 
 	uint32_t cpu_num;	/* cpu number */
 	union {
@@ -127,11 +146,21 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	char *dname;
 	int wq_id;
 
-	char *b[NUM_ADDR_MAX];
+	char **b[NUM_ADDR_MAX];
 
-	char *src1, *src2;
-	char *src, *dst, *dst1, *dst2;
-	struct delta_rec *delta;
+	union {
+		char **src;
+		char **src1;
+	};
+
+	union {
+		char **src2;
+		char **dst;
+		char **dst1;
+	};
+
+	char **dst2;
+	struct delta_rec **delta;
 
 	char *misc_b1;
 	char *misc_b2;
@@ -153,6 +182,15 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 	uint64_t max_cyc;
 
 	int numa_node;
+	bool wq_init_done;
+	volatile bool test_completed;
+	int id_owner_idx[NUM_ID_ADDRS];		/* index of the two owners per submitter
+						 * in id_owners
+						 */
+	uint16_t *id_handle[NUM_ID_ADDRS];	/* list of id window handles for a submitter */
+	int *idpte_fd;				/* list of file desc of the IDPTE window
+						 * opened by the owner
+						 */
 
 	uint64_t drain_submitted;
 	uint64_t drain_total_cycles;
@@ -160,9 +198,21 @@ struct __attribute__ ((aligned (64))) tcfg_cpu {
 
 	union {
 		void *op_priv;
-		uint32_t *crc;
+		uint64_t *crc;
 		struct t10_pi_tuple *dif_tag;
 	};
+
+	struct shared_cnt {
+		union {
+			uint64_t prod;
+			char ppad[64];
+		};
+
+		union {
+			uint64_t cons;
+			char cpad[64];
+		};
+	} updt_wnd_cnt[2];		/* Count of the outstanding update window descriptors */
 };
 
 struct op_info {
@@ -179,7 +229,11 @@ struct op_info {
 
 struct numa_mem {
 	void *base_addr;
+	off_t offset;
+	int fd;
 	uint64_t sz;
+	char *desc_comp;
+	uint64_t desc_comp_sz;
 };
 
 struct mmio_mem {
@@ -188,6 +242,24 @@ struct mmio_mem {
 	void *base_addr;
 	uint64_t sz;
 	int fd;
+};
+
+/*
+ * This structure contains parameters for the owner processes
+ * that will be created as part of inter domain operation tests
+ */
+struct id_owner_info {
+	int pid;			/* pid of the owner process */
+	pthread_t tid;			/* thread id of the owner process */
+	void *wq;			/* dsa context of the wq */
+	int wq_fd;			/* file desc of the wq opened by the owner */
+	bool is_dwq;			/* 1 if the wq assigned is a DWQ */
+	int *idpte_fd;			/* list of file desc of the IDPTE windows created */
+	int wnd_status;			/* 1/-1 - IDPTE window creation successful/failure  */
+	int nb_sub;			/* number of submitters associated to the owner */
+	int *sub_idx;			/* Array of index of the submitter in tcfg->tcpu[] */
+	int owner_idx;			/* Owner's own index */
+	struct tcfg* tcfg;			/* Pointer to the tcfg struct */
 };
 
 /*
@@ -200,11 +272,13 @@ struct tcfg {
 	uint64_t bstride;			/* buffer stride (-t) */
 	uint32_t nb_bufs;			/* buffer count (-n) */
 	int qd;					/* queue depth (-q) */
+	uint32_t nb_k;				/* cpu count for test - parsed from -k */
+	uint32_t nb_K;				/* cpu count for test - parsed from -K */
 	uint32_t nb_cpus;			/* cpu count for test - parsed from -k/-K */
 	uint32_t pg_size;			/* 0 - 4K, 1 - 2Mb, 2 - 1G (-l) */
 	uint32_t wq_type;			/* wq type (-w) */
 	uint32_t batch_sz;			/* batch size (-b) */
-	uint32_t iter;				/* iterations (-i) */
+	uint64_t iter;				/* iterations (-i) */
 	uint32_t op;				/* opcode (-o) */
 	bool verify;				/* verify data after generating descriptors (-v)  */
 	bool dma;				/* use dma v/s memcpy (-m) */
@@ -229,6 +303,7 @@ struct tcfg {
 	int proc;				/* uses processes not threads (-P) */
 	int driver;				/* user driver(uio/vfio_pci) (-u) */
 	int nb_user_eng;			/* number of engines to use with -u */
+	uint32_t transl_fetch;			/* interval at which the translation fetch descriptor to add (-X) */
 	int drain_desc;				/* drain desc (-Y) */
 	bool shuffle_descs;			/* shuffle descriptors */
 
@@ -267,7 +342,20 @@ struct tcfg {
 	int vfio_fd;				/* VFIO filehandle (-u with vfio_pci) */
 
 	struct op_info *op_info;
-
+	uint32_t id_nb_owners;			/* number of inter domain owner processes */
+	bool id_owners_given;			/* true if owners are specified by -R option */
+	struct cpu_wq_info *id_owners;		/* array of inter domain owner processes */
+	struct id_owner_info *id_owner_info;	/* array of inter domain owner processes */
+	int id_oper;				/* inter domain operand type:
+						 * 1-addr1, 2-addr2 3-both
+						 */
+	int id_idpte_type;			/* IDPTE type 0-SASS, 1-SAMS */
+	uint32_t id_updt_win_interval; 		/* IDPT update window interval in terms of
+						 * desc counts
+						 */
+	int id_window_mode;			/* 0 - Address mode; 1 - Offset mode */
+	int id_window_enable;			/* 0 - Full Address Range; 1 - Window Range */
+	int id_window_cnt;			/* Number of IDPT windows to be created */
 
 	void * (*malloc)(size_t size, unsigned int align, int numa_node);
 
@@ -280,10 +368,13 @@ struct tcfg {
 						 * struct
 						 */
 
+	bool large_stride;
 	bool stop;
 };
 
 extern struct log_ctx log_ctx;
+
+static const uint64_t pg_sz_arr[] = { 4*1024, 2 * 1024 * 1024, 1024 * 1024 * 1024};
 
 void init_buffers(struct tcfg_cpu *tcpu);
 
@@ -335,7 +426,7 @@ clwb(char *buf, uint64_t len)
 }
 
 static inline uint64_t
-align(uint64_t v, uint64_t alignto)
+align_hv(uint64_t v, uint64_t alignto)
 {
 	return  (v + alignto - 1) & ~(alignto - 1);
 }
@@ -350,7 +441,7 @@ comp_rec_cache_aligned_size(struct tcfg_cpu *tcpu)
 	if (!tcpu->wq_info)
 		return 0;
 
-	return align(sz, CACHE_LINE_SIZE);
+	return align_hv(sz, CACHE_LINE_SIZE);
 }
 
 static inline uint32_t
@@ -458,13 +549,48 @@ poll_comp_common(struct dsa_completion_record *comp,
 	return !(comp->status == DSA_COMP_SUCCESS);
 }
 
+static inline void *
+align_hp(void *p, uint64_t alignto)
+{
+	uint64_t v = (uint64_t)p;
+
+	return  (void *)align_hv(v, alignto);
+}
+
+static inline uint64_t
+align_lv(uint64_t v, uint64_t alignto)
+{
+	return  v & ~(alignto - 1);
+}
+
+static inline void *
+align_lp(void *p, uint64_t alignto)
+{
+	uint64_t v = (uint64_t)p;
+
+	return  (void *)align_lv(v, alignto);
+}
+
 static inline uint64_t
 page_align_sz(struct tcfg *tcfg, uint64_t len)
 {
-	static const uint64_t pg_sz_arr[] = {4*1024, 2 * 1024 * 1024, 1024 * 1024 * 1024};
 	int pg_size = tcfg->pg_size;
 
-	return align(len, pg_sz_arr[pg_size]);
+	return align_hv(len, pg_sz_arr[pg_size]);
+}
+
+static inline uint64_t
+page_off(struct tcfg *tcfg, uint64_t val)
+{
+	int pg_size = tcfg->pg_size;
+
+	return val & (pg_sz_arr[pg_size] - 1);
+}
+
+static inline uint64_t
+page_sz(struct tcfg *tcfg)
+{
+	return pg_sz_arr[tcfg->pg_size];
 }
 
 static inline struct dsa_hw_desc *
@@ -516,19 +642,13 @@ data_size_per_iter(struct tcfg *tcfg)
 }
 
 static inline void
-faultin_range(char *buf, uint64_t blen, uint64_t bstride, uint32_t nb_bufs)
+faultin_range(char *buf, uint64_t blen)
 {
-	uint32_t i;
+	char *b;
 
-	for (i = 0; i < nb_bufs; i++) {
-		char *b;
-
-		for (b = buf; b < buf + blen; b = b + 4096) {
-			volatile char *v = (volatile char *)b;
-			*v;
-		}
-
-		buf += bstride;
+	for (b = buf; b < buf + blen; b = b + 4096) {
+		volatile char *v = (volatile char *)b;
+		*v;
 	}
 }
 

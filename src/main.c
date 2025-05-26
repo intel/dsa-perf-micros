@@ -52,9 +52,7 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 {
 	struct tcfg *tcfg = tcpu->tcfg;
 	struct dsa_completion_record *comp;
-	uint32_t it;
-	uint64_t cyc;
-	uint32_t max_iter = tcfg->iter;
+	uint32_t i;
 	char *mdest, *dest, *orig_dest;
 
 	printf("%s using nop\n", __func__);
@@ -82,19 +80,22 @@ work_sub_rate_test(struct tcfg_cpu *tcpu)
 	else
 		printf("Measure UC Doorbell write throughput\n");
 
-	cyc = rdtsc();
-
-	for (it = 0; it < max_iter; it++) {
+	tcpu->curr_stat.iter = 0;
+	tcpu->tstart = rdtsc();
+	for (i = 0; !tcfg->stop && (tcfg->tval_secs || i < tcfg->iter); i++) {
 		if (tcfg->var_mmio) {
 			dest = dest + CACHE_LINE_SIZE;
 			if (dest == orig_dest + 0x1000)
 				dest = orig_dest;
 		}
 
+		tcpu->curr_stat.iter++;
 		work_sub_rate_test_iter(tcpu, dest, tcpu->desc);
 	}
 
-	tcpu->cycles += rdtsc() - cyc;
+	tcpu->tend = rdtsc();
+	tcpu->cycles = tcpu->tend - tcpu->tstart;
+
 	free(mdest);
 }
 int
@@ -185,8 +186,24 @@ incr_portal_addr(struct tcfg_cpu *tcpu, void *curr_mmio)
 
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
+static void
+update_idpte_window(struct tcfg_cpu *tcpu, int b, int iter_count)
+{
+	int i;
+	struct tcfg *tcfg = tcpu->tcfg;
+
+	if (tcfg->id_updt_win_interval &&
+		((iter_count * tcfg->nb_desc + b) % tcfg->id_updt_win_interval) == 0) {
+		for (i = 0; i < NUM_ID_ADDRS; i++) {
+			if (tcpu->id_owner_idx[i] == -1)
+				continue;
+			++tcpu->updt_wnd_cnt[i].prod;
+		}
+	}
+}
+
 static __always_inline inline int
-submit_b2e(struct tcfg_cpu *tcpu, int begin, int end)
+submit_b2e(struct tcfg_cpu *tcpu, int begin, int end, int iter_count)
 {
 	int b;
 	struct dsa_hw_desc *desc;
@@ -213,6 +230,7 @@ submit_b2e(struct tcfg_cpu *tcpu, int begin, int end)
 			tcpu->drain_submitted = rdtsc();
 		}
 		dsa_desc_submit(wq_reg, tcpu->dwq, &desc[b]);
+		update_idpte_window(tcpu, b, iter_count);
 		wq_reg = incr_portal_addr(tcpu, wq_reg);
 		if (--tcpu->crdt == 0)
 			break;
@@ -373,6 +391,8 @@ check_result_one(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 
 	case DSA_OPCODE_COMPARE:
 	case DSA_OPCODE_COMPVAL:
+	case DSA_OPCODE_RS_IPASID_COMPARE:
+	case DSA_OPCODE_RS_IPASID_COMPVAL:
 		if (comp->result != 0) {
 			ERR("%d: buf compare mismatch desc(%d)\n",
 				tcpu->cpu_num, k);
@@ -387,6 +407,7 @@ check_result_one(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 		}
 		break;
 
+	case DSA_OPCODE_CRCGEN:
 	case DSA_OPCODE_COPY_CRC:
 		if (comp->crc_val != tcpu->crc[k]) {
 			ERR("crc mismatch desc %d\n", k);
@@ -405,7 +426,7 @@ check_result_one(struct tcfg_cpu *tcpu, struct dsa_hw_desc *desc)
 }
 
 static __always_inline int
-do_single_iter(struct tcfg_cpu *tcpu, int nb_desc)
+do_single_iter(struct tcfg_cpu *tcpu, int nb_desc, int iter_count)
 {
 	int k;	/* completed descriptor count */
 	int s;
@@ -467,7 +488,7 @@ do_single_iter(struct tcfg_cpu *tcpu, int nb_desc)
 
 
 		__builtin_ia32_sfence();
-		submit_b2e(tcpu, s, (s + k - prev_k - 1) % nb_desc);
+		submit_b2e(tcpu, s, (s + k - prev_k - 1) % nb_desc, iter_count);
 		s += k - prev_k;
 		s %= nb_desc;
 	}
@@ -521,15 +542,15 @@ submit_test_desc(struct tcfg_cpu *tcpu)
 	else
 		INFO_CPU(tcpu, "Running BW test\n");
 
-	if (do_single_iter(tcpu, nb_desc)) {
-		ERR("Failed initial descriptor submission\n");
+	if (do_single_iter(tcpu, nb_desc, 0)) {
+		ERR("Failed initial descriptor submission \n");
 		goto error2;
 	}
 
 	tcpu->curr_stat.iter = 0;
 	tcpu->tstart = rdtsc();
 	for (i = 0; !tcfg->stop && (tcfg->tval_secs || i < tcfg->iter) ; i++) {
-		if (do_single_iter(tcpu, nb_desc)) {
+		if (do_single_iter(tcpu, nb_desc, i)) {
 			ERR("Error iteration: %d\n", i);
 			goto error2;
 		}
@@ -566,12 +587,12 @@ do_desc_work(struct tcfg_cpu *tcpu)
 	tcpu->crdt = tcpu->qd;
 
 	if (tcfg->pg_size == 0 && tcfg->proc) {
-		int i;
+		int i, j;
 
 		/* mmap(MAP_POPULATE) but generates a fault on write after fork */
 		for (i = 0; i < tcfg->op_info->nb_buf; i++)
-			faultin_range((char *)tcpu->b[i], tcfg->blen_arr[i],
-				tcfg->bstride_arr[i], tcfg->nb_bufs);
+			for (j = 0; j < tcfg->nb_bufs; j++)
+				faultin_range(tcpu->b[i][j], tcfg->blen_arr[i]);
 	}
 
 	INFO_CPU(tcpu, "Preparing descriptors\n");
@@ -582,7 +603,7 @@ do_desc_work(struct tcfg_cpu *tcpu)
 		int e;
 
 		e = min(b + tcpu->qd - 1, nb_desc - 1);
-		s = submit_b2e(tcpu, b, e);
+		s = submit_b2e(tcpu, b, e, 0);
 
 		rc = run_check(tcpu, b, s, check_comp);
 		if (rc)
@@ -636,6 +657,7 @@ test_fn(void *arg)
 		ERR("test init failed: cpu %d\n", tcpu->cpu_num);
 
 	if (err) {
+		dunmap_per_cpu(tcpu);
 		if (tcpu->tcfg->proc)
 			exit(0);
 		return NULL;
@@ -644,6 +666,7 @@ test_fn(void *arg)
 	test_run_fn(arg);
 
 	dunmap_per_cpu(tcpu);
+
 	if (tcpu->tcfg->proc)
 		exit(0);
 
@@ -682,7 +705,6 @@ test_run(struct tcfg *tcfg)
 	bool inf = tcfg->iter == -1;
 
 	for (i = 0; i < tcfg->nb_cpus; i++) {
-
 		if (tcfg->proc) {
 			tcfg->tcpu[i].pid = fork();
 			if (tcfg->tcpu[i].pid == -1) {
@@ -741,6 +763,16 @@ test_run(struct tcfg *tcfg)
 			pthread_join(tcfg->tcpu[i].thread, NULL);
 	}
 
+	if (IS_INTER_DOMAIN_OP(tcfg->op)) {
+		for (i = 0; i < tcfg->id_nb_owners; i++)
+			if (tcfg->proc) {
+				if (tcfg->id_owner_info[i].pid > 0)
+					waitpid(tcfg->id_owner_info[i].pid, NULL, 0);
+			}
+			else
+				pthread_join(tcfg->id_owner_info[i].tid, NULL);
+	}
+
 	for (i = 0; !err && i < tcfg->nb_cpus; i++)
 		if (tcfg->tcpu[i].err)
 			err = tcfg->tcpu[i].err;
@@ -777,6 +809,10 @@ main(int argc, char **argv)
 		.access_op = { OP_WRITE, OP_WRITE, OP_WRITE },
 		.delta = 100,
 		.pg_size = 0,
+		.id_idpte_type = IDXD_WIN_TYPE_SA_SS,
+		.id_window_enable = 1,
+		.id_window_cnt = 1,
+		.transl_fetch = 0,
 	};
 
 	for (i = 0; i < argc; i++)
@@ -788,9 +824,6 @@ main(int argc, char **argv)
 	err = do_options(argc, argv, &tcfg);
 	if (err != 0)
 		goto err_ret;
-
-	if (tcfg.driver == USER && tcfg.pg_size == 0)
-		tcfg.pg_size = 2;
 
 	err = test_init_global(&tcfg);
 	if (err != 0)

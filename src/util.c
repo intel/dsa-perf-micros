@@ -1,10 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Copyright(c) 2019 Intel Corporation. All rights reserved. */
+#define _GNU_SOURCE
 #include <stdint.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/errno.h>
 #include <linux/idxd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <limits.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <libgen.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "common.h"
 #include "cpu.h"
@@ -12,14 +21,12 @@
 #include "util.h"
 
 static void
-init_buffers_common(char *b, uint64_t blen, uint64_t stride, int n, uint8_t val)
+init_buffers_common(char **b, uint64_t blen, int n, uint8_t val)
 {
 	int i;
 
-	for (i = 0; i < n; i++) {
-		memset(b, val, blen);
-		b += stride;
-	}
+	for (i = 0; i < n; i++)
+		memset(b[i], val, blen);
 }
 
 static void
@@ -65,15 +72,12 @@ prep_delta_src2(char *p, int pdiff, uint64_t blen)
 }
 
 static void
-init_bv(struct tcfg_cpu *tcpu, char **b, uint8_t *v)
+init_bv(struct tcfg_cpu *tcpu, char **b[], uint8_t *v)
 {
-	char *ib[3] = { NULL };
 	uint8_t iv[3] = { 0 };
 
 	struct tcfg *tcfg;
-	char *src, *src1, *src2;
-	struct delta_rec *dptr;
-	uint32_t nb_delta_rec;
+	char **src, **src1, **src2;
 	int i;
 
 	tcfg = tcpu->tcfg;
@@ -83,23 +87,27 @@ init_bv(struct tcfg_cpu *tcpu, char **b, uint8_t *v)
 
 	tcfg = tcpu->tcfg;
 
-	memcpy(b, ib, ARRAY_SIZE(ib) * sizeof(ib[0]));
+	b[0] = b[1] = b[2] = NULL;
 	memcpy(v, iv, ARRAY_SIZE(iv) * sizeof(iv[0]));
 
 	switch (tcfg->op) {
 
 	case DSA_OPCODE_DIF_INS:
+	case DSA_OPCODE_DIX_GEN:
 	case DSA_OPCODE_MEMMOVE:
+	case DSA_OPCODE_RS_IPASID_MEMCOPY:
 		b[0] = src;
 		v[0] = tcpu->cpu_num + 1;
 		break;
 
 	case DSA_OPCODE_COMPVAL:
+	case DSA_OPCODE_RS_IPASID_COMPVAL:
 		b[0] = src;
 		v[0] = TEST_CHAR;
 		break;
 
 	case DSA_OPCODE_COMPARE:
+	case DSA_OPCODE_RS_IPASID_COMPARE:
 		b[0] = src1;
 		b[1] = src2;
 		v[0] = TEST_CHAR;
@@ -108,22 +116,22 @@ init_bv(struct tcfg_cpu *tcpu, char **b, uint8_t *v)
 
 	case DSA_OPCODE_CR_DELTA:
 		for (i = 0; i < tcfg->nb_bufs; i++)
-			prep_delta_src2(tcpu->src2 + i * tcfg->bstride,
+			prep_delta_src2(tcpu->src2[i],
 					tcfg->delta/10, tcfg->blen);
 		break;
 
 	case DSA_OPCODE_AP_DELTA:
-		src1 = calloc(tcfg->blen, sizeof(char));
-		src2 = calloc(tcfg->blen, sizeof(char));
-		prep_delta_src2(src2, tcfg->delta/10, tcfg->blen);
-		cr_delta(src1, src2, tcpu->delta, tcfg->blen);
-		nb_delta_rec = tcfg->delta_rec_size/sizeof(*dptr);
-		dptr = tcpu->delta + nb_delta_rec;
+		src1 = calloc(1, sizeof(src1[0]));
+		src1[0] = calloc(tcfg->blen, sizeof(char));
 
-		for (i = 1; i < tcfg->nb_bufs; i++) {
-			memmove(dptr, tcpu->delta, tcfg->delta_rec_size);
-			dptr += nb_delta_rec;
-		}
+		src2 = calloc(1, sizeof(src2[0]));
+		src2[0] = calloc(tcfg->blen, sizeof(char));
+
+		prep_delta_src2(src2[0], tcfg->delta/10, tcfg->blen);
+		cr_delta(src1[0], src2[0], tcpu->delta[0], tcfg->blen);
+
+		for (i = 1; i < tcfg->nb_bufs; i++)
+			memmove(tcpu->delta[i], tcpu->delta[0], tcfg->delta_rec_size);
 
 		free(src1);
 		free(src2);
@@ -145,7 +153,7 @@ init_bv(struct tcfg_cpu *tcpu, char **b, uint8_t *v)
 void
 init_buffers(struct tcfg_cpu *tcpu)
 {
-	char *b[3];
+	char **b[3];
 	uint8_t v[3];
 	unsigned int i;
 	struct tcfg *tcfg = tcpu->tcfg;
@@ -157,7 +165,7 @@ init_buffers(struct tcfg_cpu *tcpu)
 
 	for (i = 0; i < ARRAY_SIZE(b); i++) {
 		if (b[i])
-			init_buffers_common(b[i], tcfg->blen_arr[i], tcfg->bstride_arr[i],
+			init_buffers_common(b[i], tcfg->blen_arr[i],
 				tcfg->nb_bufs, v[i]);
 	}
 }
@@ -184,8 +192,8 @@ invld_range(void *base, uint64_t len)
 	return 0;
 }
 
-int
-iotlb_invd(struct tcfg *tcfg)
+static int
+iotlb_invd_contig_mmap(struct tcfg *tcfg)
 {
 	int i;
 	int rc;
@@ -193,6 +201,13 @@ iotlb_invd(struct tcfg *tcfg)
 	for (i = 0; i < tcfg->nb_numa_node; i++) {
 		void *p = tcfg->numa_mem[i].base_addr;
 		uint64_t sz = page_align_sz(tcfg, tcfg->numa_mem[i].sz);
+
+		if (p) {
+			if (tcfg->numa_mem[i].sz == 0) {
+				ERR("Numa node memory size is zero\n");
+				return -EINVAL;
+			}
+		}
 
 		INFO("Invalidating range %p 0x%016lx\n", p, sz);
 
@@ -203,12 +218,102 @@ iotlb_invd(struct tcfg *tcfg)
 	return 0;
 }
 
+int
+iotlb_invd(struct tcfg *tcfg)
+{
+	unsigned int i, j, k;
+	int rc;
+
+	if (!tcfg->large_stride)
+		return iotlb_invd_contig_mmap(tcfg);
+
+	for (i = 0; i < tcfg->nb_cpus; i++) {
+		struct tcfg_cpu *tcpu = &tcfg->tcpu[i];
+
+		for (j = 0; j < tcfg->op_info->nb_buf; j++) {
+			for (k = 0; k < tcfg->nb_bufs; k++) {
+				rc = invld_range(align_lp(tcpu->b[j][k], page_sz(tcfg)),
+					page_align_sz(tcfg, tcfg->blen));
+				if (rc)
+					ERR("Error in invld_range %s %p\n", strerror(errno),  tcpu->b[j][k]);
+			}
+		}
+	}
+
+	for (i = 0; i < tcfg->nb_numa_node; i++) {
+		struct numa_mem *nm = &tcfg->numa_mem[i];
+
+		if (!nm->desc_comp)
+			continue;
+
+		rc = invld_range(align_lp(nm->desc_comp, page_sz(tcfg)),
+			page_align_sz(tcfg, nm->desc_comp_sz));
+		if (rc)
+			ERR("Error in munmap %s %p\n", strerror(errno),  nm->desc_comp);
+	}
+
+	return 0;
+}
+
 static void
-access_place_bufs(char *buf, uint32_t n, uint64_t sz, uint32_t stride,
-		int a, int p)
+access_place_buf(char *buf, uint64_t sz, int a, int p)
 {
 	volatile char *u;
-	uint32_t i, j;
+	uint64_t j;
+
+	for (j = 0; j < sz/64; j++) {
+		u = &buf[j * 64];
+
+		__builtin_ia32_clflush(&buf[j * 64]);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-value"
+		switch (a) {
+
+		case OP_NONE:
+			break;
+
+		case OP_WRITE:
+			*u = *u;
+			break;
+
+		case OP_READ:
+			*u;
+			break;
+
+		default:
+			ERR("unrecognized access op %d\n", a);
+			break;
+		}
+
+		switch (p) {
+
+		case OP_NONE:
+		case OP_FETCH:
+			break;
+
+		case OP_DEMOTE:
+			*u = *u;
+			cldemote(u);
+			break;
+
+		case OP_FLUSH:
+			__builtin_ia32_clflush(&buf[j * 64]);
+			break;
+
+		default:
+			ERR("unrecognized placement %d\n", p);
+			break;
+		}
+#pragma GCC diagnostic pop
+	}
+
+}
+
+static void
+access_place_bufs(char **buf, uint32_t n, uint64_t sz, int a, int p)
+{
+	uint32_t i;
 
 	if (!buf)
 		return;
@@ -216,56 +321,8 @@ access_place_bufs(char *buf, uint32_t n, uint64_t sz, uint32_t stride,
 	if (a == OP_NONE && p == OP_NONE)
 		return;
 
-	for (i = 0; i < n; i++) {
-		for (j = 0; j < sz/64; j++) {
-			u = &buf[j * 64];
-
-			__builtin_ia32_clflush(&buf[j * 64]);
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-value"
-			switch (a) {
-
-			case OP_NONE:
-				break;
-
-			case OP_WRITE:
-				*u = *u;
-				break;
-
-			case OP_READ:
-				*u;
-				break;
-
-			default:
-				ERR("unrecognized access op %d\n", a);
-				break;
-			}
-
-			switch (p) {
-
-			case OP_NONE:
-			case OP_FETCH:
-				break;
-
-			case OP_DEMOTE:
-				*u = *u;
-				cldemote(u);
-				break;
-
-			case OP_FLUSH:
-				__builtin_ia32_clflush(&buf[j * 64]);
-				break;
-
-			default:
-				ERR("unrecognized placement %d\n", p);
-				break;
-			}
-#pragma GCC diagnostic pop
-		}
-
-		buf += stride;
-	}
+	for (i = 0; i < n; i++)
+		access_place_buf(buf[i], sz, a, p);
 
 	__builtin_ia32_mfence();
 }
@@ -282,13 +339,19 @@ do_cache_ops(struct tcfg_cpu *tcpu)
 
 	for (i = 0; i < ARRAY_SIZE(tcpu->b); i++)
 		access_place_bufs(tcpu->b[i], tcfg->nb_bufs, tcfg->blen_arr[i],
-			tcfg->bstride_arr[i], tcfg->access_op[i], tcfg->place_op[i]);
+			tcfg->access_op[i], tcfg->place_op[i]);
 
 	__builtin_ia32_mfence();
 }
 
 static int
-verify_memmove(struct tcfg_cpu *tcpu, char *src, char *dst, int n)
+is_extra_op(struct tcfg_cpu *tcpu, int i)
+{
+	return !(tcpu->desc[i].opcode == tcpu->tcfg->op);
+}
+
+static int
+verify_memmove(struct tcfg_cpu *tcpu, char **src, char **dst, int n)
 {
 	uint32_t len;
 	int i;
@@ -298,34 +361,56 @@ verify_memmove(struct tcfg_cpu *tcpu, char *src, char *dst, int n)
 	len = tcfg->blen;
 
 	for (i = 0; i < n; i++) {
-		if (memcmp(src, dst, len)) {
-			ERR("%d: memory comparison failed src(%p) dst(%p) len(%d)\n",
-				i, src, dst, len);
-			dump_desc(&tcpu->desc[i]);
-			tcpu->err = 1;
-			return 1;
-		}
-
-		src += tcfg->bstride;
-		dst += tcfg->bstride;
+		if (!is_extra_op(tcpu, i))
+			if (memcmp(src[i], dst[i], len)) {
+				ERR("%d: memory comparison failed src(%p) dst(%p) len(%d)\n",
+					i, src[i], dst[i], len);
+				dump_desc(&tcpu->desc[i]);
+				tcpu->err = 1;
+				return 1;
+			}
 	}
 
 	return 0;
 }
 
 static int
-verify_crc(struct tcfg_cpu *tcpu, char *dst, int block_idx)
+verify_crc(struct tcfg_cpu *tcpu, char **dst, int n)
 {
+	struct tcfg *tcfg;
+	uint32_t nb_blocks;
+	uint32_t j;
+	int i;
+	char *bdst;
 	struct t10_pi_tuple *actual, *expected;
+	int block_sz, dst_bl_len;
 
-	actual = (struct t10_pi_tuple *)(dst + tcpu->tcfg->bl_len);
-	expected = tcpu->dif_tag + block_idx;
+	tcfg = tcpu->tcfg;
+	nb_blocks = tcfg->blen/tcfg->bl_len;
+	block_sz = tcfg->blen_arr[1]/nb_blocks;
+	dst_bl_len = block_sz - sizeof(struct t10_pi_tuple);
 
-	return (actual->guard_tag != expected->guard_tag);
+	for (i = 0; i < n; i++) {
+		if (is_extra_op(tcpu, i))
+			continue;
+
+		bdst = dst[i];
+
+		for (j = 0; j < nb_blocks; j++) {
+			actual = (struct t10_pi_tuple *)(bdst + j*block_sz + dst_bl_len);
+			expected = tcpu->dif_tag + j;
+
+			if (actual->guard_tag != expected->guard_tag) {
+				ERR("crc verification failed for buffer %d, block %d\n", i, j);
+				return 1;
+			}
+		}
+	}
+	return 0;
 }
 
 static int
-verify_dif(struct tcfg_cpu *tcpu, char *dst, char *src, int n)
+verify_dif(struct tcfg_cpu *tcpu, char **dst, char **src, int n)
 {
 	struct tcfg *tcfg;
 	uint32_t j;
@@ -341,20 +426,15 @@ verify_dif(struct tcfg_cpu *tcpu, char *dst, char *src, int n)
 	dst_adj = (tcfg->blen_arr[1] - tcfg->blen)/nb_blocks;
 
 	for (i = 0; i < n; i++) {
+		if (is_extra_op(tcpu, i))
+			continue;
 
-		bsrc = src + i * tcfg->bstride_arr[0];
-		bdst = dst + i * tcfg->bstride_arr[1];
+		bsrc = src[i];
+		bdst = dst[i];
 
 		for (j = 0; j < nb_blocks; j++) {
 			if (memcmp(bsrc, bdst, tcfg->bl_len)) {
 				ERR("memcmp failed\n");
-				return 1;
-			}
-
-			if ((tcfg->op == DSA_OPCODE_DIF_INS ||
-				tcfg->op == DSA_OPCODE_DIF_UPDT)
-				 && verify_crc(tcpu, bdst, j)) {
-				ERR("crc comparision failed\n");
 				return 1;
 			}
 
@@ -367,25 +447,47 @@ verify_dif(struct tcfg_cpu *tcpu, char *dst, char *src, int n)
 }
 
 static int
-verify_dif_strip(struct tcfg_cpu *tcpu, char *dst, char *src, int n)
+verify_dif_strip(struct tcfg_cpu *tcpu, char **dst, char **src, int n)
 {
 	return verify_dif(tcpu, dst, src, n);
 }
 
 static int
-verify_dif_ins(struct tcfg_cpu *tcpu, char *dst, char *src, int n)
+verify_dif_ins(struct tcfg_cpu *tcpu, char **dst, char **src, int n)
 {
-	return verify_dif(tcpu, dst, src, n);
+	int rc;
+
+	rc = verify_dif(tcpu, dst, src, n);
+	if (rc)
+		return rc;
+
+	rc = verify_crc(tcpu, dst, n);
+
+	return rc;
 }
 
 static int
-verify_dif_updt(struct tcfg_cpu *tcpu, char *dst, char *src, int n)
+verify_dif_updt(struct tcfg_cpu *tcpu, char **dst, char **src, int n)
 {
-	return verify_dif(tcpu, dst, src, n);
+	int rc;
+
+	rc = verify_dif(tcpu, dst, src, n);
+	if (rc)
+		return rc;
+
+	rc = verify_crc(tcpu, dst, n);
+
+	return rc;
 }
 
 static int
-verify_memfill(struct tcfg_cpu *tcpu, char *dst, int n)
+verify_dix_gen(struct tcfg_cpu *tcpu, char **dst, int n)
+{
+	return verify_crc(tcpu, dst, n);
+}
+
+static int
+verify_memfill(struct tcfg_cpu *tcpu, char **dst, int n)
 {
 	int len;
 	int i, j;
@@ -397,37 +499,38 @@ verify_memfill(struct tcfg_cpu *tcpu, char *dst, int n)
 	len = tcfg->blen;
 
 	for (i = 0; i < n; i++) {
-		d8 = (uint64_t *)dst;
-		for (j = 0; j < len/8; j++) {
-			if (d8[j] != tcfg->fill) {
-				ERR("memory comparison failed fill(%lx) dst(%lx)\n",
-				tcfg->fill, d8[j]);
-				ERR("buffer address %p\n", &d8[j]);
-				tcpu->err = 1;
-				return 1;
+		if (!is_extra_op(tcpu, i)) {
+		d8 = (uint64_t *)dst[i];
+			for (j = 0; j < len/8; j++) {
+				if (d8[j] != tcfg->fill) {
+					ERR("memory comparison failed fill(%lx) dst(%lx)\n",
+					tcfg->fill, d8[j]);
+					ERR("buffer address %p\n", &d8[j]);
+					tcpu->err = 1;
+					return 1;
+				}
+			}
+
+			d1 = (uint8_t *)&d8[len/8];
+			f1 = (uint8_t *)&tcfg->fill;
+
+			for (j = 0; j < len % 8; j++) {
+				if (d1[j] != f1[j]) {
+					ERR("memory comparison failed fill(%x) dst(%x)\n",
+					f1[j], d1[j]);
+					ERR("buffer address %p\n", &d1[j]);
+					tcpu->err = 1;
+					return 1;
+				}
 			}
 		}
-
-		d1 = (uint8_t *)&d8[len/8];
-		f1 = (uint8_t *)&tcfg->fill;
-
-		for (j = 0; j < len % 8; j++) {
-			if (d1[j] != f1[j]) {
-				ERR("memory comparison failed fill(%x) dst(%x)\n",
-				f1[j], d1[j]);
-				ERR("buffer address %p\n", &d1[j]);
-				tcpu->err = 1;
-				return 1;
-			}
-		}
-		dst += tcfg->bstride;
 	}
 
 	return 0;
 }
 
 static int
-verify_buf_dc(struct tcfg_cpu *tcpu, char *dst1, char *dst2, char *src,
+verify_buf_dc(struct tcfg_cpu *tcpu, char **dst1, char **dst2, char **src,
 	int n)
 {
 	struct tcfg *tcfg;
@@ -446,7 +549,7 @@ verify_buf_dc(struct tcfg_cpu *tcpu, char *dst1, char *dst2, char *src,
 }
 
 static int
-verify_ap_delta(struct tcfg_cpu *tcpu, char *dst, int n)
+verify_ap_delta(struct tcfg_cpu *tcpu, char **dst, int n)
 {
 	struct tcfg *tcfg;
 	struct delta_rec *dptr;
@@ -456,30 +559,29 @@ verify_ap_delta(struct tcfg_cpu *tcpu, char *dst, int n)
 
 	tcfg = tcpu->tcfg;
 	nb_delta_rec = tcfg->delta_rec_size/sizeof(*dptr);
-	dptr = tcpu->delta;
+	dptr = tcpu->delta[0];
 
 	for (i = 0; i < n; i++) {
+		if (!is_extra_op(tcpu, i)) {
+			p8 = (uint64_t *)dst[i];
+			for (j = 0; j < nb_delta_rec; j++) {
+				int o = dptr[j].off;
 
-		p8 = (uint64_t *)dst;
-		for (j = 0; j < nb_delta_rec; j++) {
-			int o = dptr[j].off;
-
-			if (p8[o] != dptr[j].val) {
-				ERR("ap delta failed buffer %d offset %d\n",
-					i, j);
-				tcpu->err = 1;
-				return 1;
+				if (p8[o] != dptr[j].val) {
+					ERR("ap delta failed buffer %d offset %d\n",
+						i, j);
+					tcpu->err = 1;
+					return 1;
+				}
 			}
 		}
-
-		dst += tcfg->bstride;
 	}
 
 	return 0;
 }
 
 static int
-verify_buf_sc(struct tcfg_cpu *tcpu, char *src, char *dst, int n)
+verify_buf_sc(struct tcfg_cpu *tcpu, char **src, char **dst, int n)
 {
 	struct tcfg *tcfg;
 
@@ -504,8 +606,7 @@ verify_buf_sc(struct tcfg_cpu *tcpu, char *src, char *dst, int n)
 		break;
 
 	case DSA_OPCODE_DIF_STRP:
-		tcpu->err = verify_dif_strip(tcpu, dst, src,
-						n);
+		tcpu->err = verify_dif_strip(tcpu, dst, src, n);
 		break;
 
 	case DSA_OPCODE_DIF_INS:
@@ -513,8 +614,11 @@ verify_buf_sc(struct tcfg_cpu *tcpu, char *src, char *dst, int n)
 		break;
 
 	case DSA_OPCODE_DIF_UPDT:
-		tcpu->err = verify_dif_updt(tcpu, dst, src,
-						n);
+		tcpu->err = verify_dif_updt(tcpu, dst, src, n);
+		break;
+
+	case DSA_OPCODE_DIX_GEN:
+		tcpu->err = verify_dix_gen(tcpu, dst, n);
 		break;
 	}
 
@@ -933,6 +1037,7 @@ void
 test_barrier_free(struct tcfg *tcfg)
 {
 	struct thread_data *td = tcfg->td;
+	int rc;
 
 	if (!td)
 		return;
@@ -942,5 +1047,132 @@ test_barrier_free(struct tcfg *tcfg)
 	pthread_mutex_destroy(&td->mutex);
 	pthread_cond_destroy(&td->cv);
 
-	munmap(td, align(sizeof(*td), 4096));
+	rc = munmap(td, sizeof(*td));
+	if (rc)
+		ERR("Error in munmap: %s\n", strerror(errno));
+}
+
+#define TPH_CTL "168"
+static int
+exec_cmd(char *cmd, uint32_t *v)
+{
+	FILE *fp;
+	int rc;
+
+	fp = popen(cmd, "r");
+	if (!fp) {
+		ERR("popen failed\n");
+		return -1;
+	}
+
+	rc = v ? fscanf(fp, "%x", v)  == 1 ? 0 : -1 : 0;
+	pclose(fp);
+
+	return rc;
+}
+
+static int
+read_tph(char *bdf, uint32_t *tph)
+{
+	char *cmd;
+	int rc;
+
+	rc = asprintf(&cmd, "setpci -s %s "TPH_CTL".l", bdf);
+	if (rc < 0)
+		return -1;
+	rc = exec_cmd(cmd, tph);
+	free(cmd);
+
+	return rc;
+}
+
+static int
+write_tph(char *bdf, int32_t v)
+{
+	char *cmd;
+	int rc;
+
+	rc = asprintf(&cmd, "setpci -s %s "TPH_CTL".l=0x%x", bdf, v);
+	if (rc < 0)
+		return -1;
+
+	rc = exec_cmd(cmd, NULL);
+	free(cmd);
+
+	return rc;
+}
+
+/* vfio
+ * tph[8] = 1, ability to issue request TLP using TPH
+ * tph[1:0] (st mode) = 2, custom
+ */
+#define TPH_MASK ((1U << 8) | 2)
+
+int
+init_tph(char *bdf)
+{
+	uint32_t tph;
+	int rc;
+
+	if (!bdf)
+		return -EINVAL;
+
+	rc = read_tph(bdf, &tph);
+	if (rc)
+		return rc;
+
+	return (tph & TPH_MASK) == TPH_MASK ? 0 :
+		write_tph(bdf, tph | TPH_MASK);
+}
+
+char*
+dev_name_to_pci_name(const char *devname)
+{
+	char *rs;
+	char buf[PATH_MAX], *sysfs_dsa;
+	ssize_t nbytes;
+	int rc;
+
+	sysfs_dsa = NULL;
+
+	rc = asprintf(&sysfs_dsa, "/sys/bus/dsa/devices/%s", devname);
+	if (rc == -1)
+		return NULL;
+
+	rs = NULL;
+
+	nbytes = readlink(sysfs_dsa, buf, PATH_MAX);
+	if (nbytes == -1) {
+		perror("readlink");
+		goto out;
+	}
+
+	rs = strdup(basename(dirname(buf)));
+
+out:
+	free(sysfs_dsa);
+	return rs;
+}
+
+int
+owner_seq_no(struct tcfg *tcfg, const char *dname, int nb_cpus)
+{
+	int i, seq = 0;
+	char *last_dname = tcfg->tcpu[0].dname;
+
+	for (i = 0; i < nb_cpus; i++) {
+		if (strcmp(last_dname, tcfg->tcpu[i].dname) != 0) {
+			seq++;
+			last_dname = tcfg->tcpu[i].dname;
+		}
+		if (strcmp(dname, tcfg->tcpu[i].dname) == 0)
+			return seq;
+	}
+	return ++seq;
+}
+
+int
+get_dsa_dev_count(struct tcfg *tcfg)
+{
+	return owner_seq_no(tcfg, "", tcfg->nb_cpus);
 }

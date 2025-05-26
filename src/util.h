@@ -15,5 +15,9 @@ int test_barrier_init(struct tcfg *tcfg);
 int test_barrier(struct tcfg *tcfg, bool err);
 void test_barrier_free(struct tcfg *tcfg);
 void calc_cpu_for_sec(struct tcfg *tcfg, int sec);
+int owner_seq_no(struct tcfg *tcfg, const char *dname, int nb_cpus);
+int get_dsa_dev_count(struct tcfg *tcfg);
+int init_tph(char *bdf);
+char *dev_name_to_pci_name(const char *devname);
 
 #endif
