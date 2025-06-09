@@ -9,9 +9,9 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <x86intrin.h>
-#include <linux/idxd.h>
 #include <linux/types.h>
 
+#include "idxd.h"
 #include "log.h"
 
 #define TEST_CHAR	0x55

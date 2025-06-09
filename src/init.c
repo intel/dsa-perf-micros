@@ -26,10 +26,10 @@
 #include <linux/memfd.h>
 #include <linux/mempolicy.h>
 #include <stdint.h>
-#include <linux/idxd.h>
 #include <errno.h>
 #include <numa.h>
 
+#include "idxd.h"
 #include "common.h"
 #include "dsa.h"
 #include "device.h"
