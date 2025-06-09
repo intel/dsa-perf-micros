@@ -13,8 +13,8 @@
 #include <sys/time.h>
 #include <stdint.h>
 #include <errno.h>
-#include <linux/idxd.h>
 
+#include "idxd.h"
 #include "common.h"
 #include "options.h"
 #include "util.h"

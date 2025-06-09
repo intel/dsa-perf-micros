@@ -5,7 +5,6 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/errno.h>
-#include <linux/idxd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <limits.h>
@@ -15,6 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "idxd.h"
 #include "common.h"
 #include "cpu.h"
 #include "dsa.h"

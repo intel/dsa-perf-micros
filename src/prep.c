@@ -6,7 +6,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/errno.h>
-#include <linux/idxd.h>
+
+#include "idxd.h"
 #include "common.h"
 #include "dsa.h"
 #include "device.h"
